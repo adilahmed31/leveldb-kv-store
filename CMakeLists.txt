@@ -34,7 +34,7 @@ set(wifs_proto_srcs "${CMAKE_CURRENT_BINARY_DIR}/wifs.pb.cc")
 set(wifs_proto_hdrs "${CMAKE_CURRENT_BINARY_DIR}/wifs.pb.h")
 set(wifs_grpc_srcs "${CMAKE_CURRENT_BINARY_DIR}/wifs.grpc.pb.cc")
 set(wifs_grpc_hdrs "${CMAKE_CURRENT_BINARY_DIR}/wifs.grpc.pb.h")
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+# set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_custom_command(
       OUTPUT "${wifs_proto_srcs}" "${wifs_proto_hdrs}" "${wifs_grpc_srcs}" "${wifs_grpc_hdrs}"
       COMMAND ${_PROTOBUF_PROTOC}
@@ -85,14 +85,14 @@ target_link_libraries(p2p_grpc_proto
 find_library(PTHREAD_LIB  NAMES pthread)
 
 # client
-add_library(client SHARED "client.cc")
-target_link_libraries(client
-  ${PTHREAD_LIB}
-  wifs_grpc_proto
-  ${_REFLECTION}
-  ${_GRPC_GRPCPP}
-  ${_PROTOBUF_LIBPROTOBUF})
-set_property(TARGET client PROPERTY POSITION_INDEPENDENT_CODE ON)
+#add_executable(client "client.cc")
+#target_link_libraries(client
+#  ${PTHREAD_LIB}
+#  wifs_grpc_proto
+#  ${_REFLECTION}
+#  ${_GRPC_GRPCPP}
+#  ${_PROTOBUF_LIBPROTOBUF})
+#set_property(TARGET client PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # server
 add_executable(server "server.cc")

@@ -23,6 +23,7 @@ void tester() {
 }
 
 int main(int argc, char* argv[]) {
+    init();
     tester();
     return 0;
 }
