@@ -23,27 +23,28 @@
 #include <algorithm>
 
 #include "commonheaders.h"
-#include "p2p.grpc.p2p.h"
-#include "wifs.grpc.p2p.h"
+#include "p2p.grpc.pb.h"
+#include "wifs.grpc.pb.h"
 
 using grpc::Server;
 using grpc::ServerBuilder;
 using grpc::ServerContext;
-using grpc::ServerPutr;
+using grpc::ServerWriter;
 using grpc::Status;
 using grpc::StatusCode;
 
 using grpc::Channel;
 using grpc::ClientContext;
-using grpc::ClientGeter;
+using grpc::ClientReader;
 
 using wifs::PutReq;
 using wifs::PutRes;
 using wifs::GetReq;
 using wifs::GetRes;
+using wifs::WIFS;
 
 using p2p::HeartBeat;
-
+using p2p::PeerToPeer;
 
 char root_path[MAX_PATH_LENGTH];
 
@@ -86,8 +87,7 @@ class WifsServiceImplementation final : public WIFS::Service {
     Status wifs_PUT(ServerContext* context, const PutReq* request,
                       PutRes* reply) override {
         int key = request->key();
-        const auto value = std::to_string(request->val()).c_str();
-        std::cout << "Put: Key - " << key << "Value - " << value <<std::endl;
+        std::cout << "Put: Key - " << key << "Value - " << request->val().c_str() <<std::endl;
         return Status::OK;
     }
 
@@ -117,7 +117,6 @@ void run_p2p_server() {
     std::unique_ptr<Server> server(p2pServer.BuildAndStart());
     
     std::cout << "P2P Server listening on port: " << this_node_address << std::endl;
-    sem_post(&sem_consensus);
 
     server->Wait();
 }

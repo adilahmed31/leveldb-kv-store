@@ -11,7 +11,7 @@
 
 using grpc::Channel;
 using grpc::ClientContext;
-using grpc::ClientGeter;
+using grpc::ClientReader;
 using grpc::Status;
 using grpc::StatusCode;
 

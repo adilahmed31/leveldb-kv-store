@@ -21,7 +21,7 @@ cmake_minimum_required(VERSION 3.5.1)
 
 project(wifs C CXX)
 
-include(../Strongly-Consistent-FS/common.cmake)
+include(../leveldb-kv-store/common.cmake)
 
 # Proto file
 get_filename_component(wifs_proto "protos/wifs.proto" ABSOLUTE)
@@ -105,8 +105,8 @@ target_link_libraries(server
   ${_PROTOBUF_LIBPROTOBUF})
 
 # client manual, easy for manual testing. spin up server and then client
-add_executable(client_manual "client_manual.cc")
-target_link_libraries(client_manual
+add_executable(client_tester "client_tester.cc")
+target_link_libraries(client_tester
   ${PTHREAD_LIB}
   wifs_grpc_proto
   ${_REFLECTION}
