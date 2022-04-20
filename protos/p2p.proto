@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package p2p;
+
+service PeerToPeer {
+    rpc Ping(HeartBeat) returns (HeartBeat) {}
+}
+
+message HeartBeat {
+    enum State {
+        // can be used when doing the catch up work after failure
+        INIT = 0;
+
+        // when in normal operation
+        READY = 1;
+    }
+    State state = 1;
+}

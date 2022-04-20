@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+option java_package = "ex.grpc";
+
+package wifs;
+
+service WIFS {
+  rpc wifs_GET(GetReq) returns (GetRes){}
+  rpc wifs_PUT(PutReq) returns (PutRes){}
+}
+
+message PutReq {
+  int32 key = 1;
+  bytes val = 2;
+}
+
+message PutRes {
+  Status status = 1;
+}
+
+message GetReq {
+  int32 key = 1;
+  bytes val = 2;
+}
+
+message GetRes {
+  bytes val = 2;
+  Status status = 1;
+}
