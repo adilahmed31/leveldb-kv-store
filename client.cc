@@ -17,14 +17,12 @@ int init() {
 int do_get(int key, char* val) {
  
     int rc = options.wifsclient->wifs_GET(key, val);
-
-    return 0;  
+    return rc;
 }
 
 int do_put(int key, char* val) {
 
     int rc = options.wifsclient->wifs_PUT(key, val);
-  
-    return 0;
+    return rc;
 }
 

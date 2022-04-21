@@ -26,10 +26,6 @@ using wifs::PutRes;
 class WifsClient {
    public:
     WifsClient(std::shared_ptr<Channel> channel) : stub_(WIFS::NewStub(channel)) {}
-
-    int interval = 1000;
-    int retries = 1;
-
     int wifs_GET(int key, char val[BLOCK_SIZE]) {
         ClientContext context;
         GetReq request;
@@ -37,7 +33,7 @@ class WifsClient {
         request.set_key(key);
         Status status = stub_->wifs_GET(&context, request, &reply);
         strncpy(val, reply.val().c_str(), BLOCK_SIZE);
-        if (!status.ok()) return -1;
+        return status.ok() ? 0 : -1;
     }
 
     int wifs_PUT(int key, char val[BLOCK_SIZE]) {
@@ -48,9 +44,7 @@ class WifsClient {
         request.set_val(std::string(val));
 
         Status status = stub_->wifs_PUT(&context, request, &reply);
-        if (!status.ok()) return -1;
-
-        return 0;
+        return status.ok() ? 0 : -1;
     }
 
    private:

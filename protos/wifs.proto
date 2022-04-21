@@ -24,14 +24,13 @@ message PutRes {
 
 message GetReq {
   int32 key = 1;
-  bytes val = 2;
 }
 
 message GetRes {
-  bytes val = 2;
   enum Status{
     FAIL = 0;
     PASS = 1;
   }
   Status status = 1;
+  bytes val = 2;
 }
