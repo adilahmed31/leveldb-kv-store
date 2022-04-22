@@ -26,6 +26,24 @@
 #include "p2p.grpc.pb.h"
 #include "wifs.grpc.pb.h"
 
+#include <leveldb/cache.h>          
+#include <leveldb/comparator.h>     
+#include <leveldb/dumpfile.h>       
+#include <leveldb/export.h>         
+#include <leveldb/iterator.h>       
+#include <leveldb/slice.h>          
+#include <leveldb/table_builder.h>  
+#include <leveldb/write_batch.h>    
+#include <leveldb/c.h>              
+#include <leveldb/db.h>             
+#include <leveldb/env.h>            
+#include <leveldb/filter_policy.h>  
+#include <leveldb/options.h>        
+#include <leveldb/status.h>         
+#include <leveldb/table.h> 
+
+#include "custom_fs.cc"
+
 using grpc::Server;
 using grpc::ServerBuilder;
 using grpc::ServerContext;
@@ -54,6 +72,8 @@ std::string cur_node_wifs_address;
 
 std::unique_ptr<PeerToPeer::Stub> client_stub_;
 
+leveldb::DB* db;
+
 void init_connection_with_peer(std::string peer_node_address) {
     client_stub_ = PeerToPeer::NewStub(grpc::CreateChannel(peer_node_address, grpc::InsecureChannelCredentials()));
 }
@@ -77,25 +97,25 @@ void get(void) {
 }
 
 class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
-    Status Ping(ServerContext* context, const HeartBeat* request, HeartBeat* reply) {
+    grpc::Status Ping(ServerContext* context, const HeartBeat* request, HeartBeat* reply) {
         std::cout << "Ping!" <<std::endl;
-        return Status::OK;
+        return grpc::Status::OK;
     }
 };
 
 class WifsServiceImplementation final : public WIFS::Service {
-    Status wifs_PUT(ServerContext* context, const PutReq* request,
-                      PutRes* reply) override {
-        int key = request->key();
-        std::cout << "Put: Key - " << key << "Value - " << request->val().c_str() <<std::endl;
-        return Status::OK;
+    grpc::Status wifs_PUT(ServerContext* context, const PutReq* request, PutRes* reply) override {
+        leveldb::Status s = db->Put(leveldb::WriteOptions(), std::to_string(request->key()).c_str(), request->val().c_str());
+        reply->set_status(s.ok() ? wifs::PutRes_Status_PASS : wifs::PutRes_Status_FAIL);
+        return grpc::Status::OK;
     }
 
-    Status wifs_GET(ServerContext* context, const GetReq* request,
-                     GetRes* reply) override {
-        int key = request->key();
-        std::cout << "Get: Key - " << key  <<std::endl;
-        return Status::OK;
+    grpc::Status wifs_GET(ServerContext* context, const GetReq* request, GetRes* reply) override {
+        std::string val = "";
+        leveldb::Status s = db->Get(leveldb::ReadOptions(), std::to_string(request->key()).c_str(), &val);
+        reply->set_status(s.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
+        reply->set_val(val);
+        return grpc::Status::OK;
     }
 };
 
@@ -139,6 +159,17 @@ int main(int argc, char** argv) {
     if (ENOENT == errno) {
         mkdir(getServerDir(server_id).c_str(), 0777);
     }
+
+    // spin off level db server locally
+    leveldb::Options options;
+    options.create_if_missing = true;
+
+    leveldb::Env* actual_env = leveldb::Env::Default();
+    leveldb::Env* env = new CustomEnv(actual_env);
+    options.env = env;
+
+    leveldb::Status status = leveldb::DB::Open(options, getServerDir(server_id).c_str(), &db);
+    assert(status.ok());
 
     std::thread p2p_server(run_p2p_server);
     run_wifs_server();
