@@ -120,6 +120,12 @@ void get(void) {
     return;
 }
 
+void populate_hash_server_map(google::protobuf::Map<std::__cxx11::basic_string<char>, std::__cxx11::basic_string<char>>* map) {
+    std::map<std::string, std::string> ht;
+    ht["test_hash_ub"] = "server ip";
+    *map = google::protobuf::Map<std::string, std::string>(ht.begin(), ht.end());
+}
+
 class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     grpc::Status Ping(ServerContext* context, const p2p::HeartBeat* request, p2p::HeartBeat* reply) {
         std::cout << "Ping!" <<std::endl;
@@ -167,11 +173,16 @@ class WifsServiceImplementation final : public WIFS::Service {
             }
             //else declare server failed - re assign keys
             reply->set_status(status.ok() ? wifs::PutRes_Status_PASS : wifs::PutRes_Status_FAIL);
+
+            //populate the hash_server_map accordingly 
+            populate_hash_server_map(reply->mutable_hash_server_map());
+
             return grpc::Status::OK;
         }
 
         leveldb::Status s = db->Put(leveldb::WriteOptions(), std::to_string(request->key()).c_str(), request->val().c_str());
         reply->set_status(s.ok() ? wifs::PutRes_Status_PASS : wifs::PutRes_Status_FAIL);
+        populate_hash_server_map(reply->mutable_hash_server_map());
         return grpc::Status::OK;
     }
 
@@ -189,6 +200,10 @@ class WifsServiceImplementation final : public WIFS::Service {
             }
             //else declare server failed - re assign keys
             reply->set_status(status.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
+
+            //populate the hash_server_map accordingly 
+            populate_hash_server_map(reply->mutable_hash_server_map());
+
             return grpc::Status::OK;
         }
 
@@ -196,6 +211,7 @@ class WifsServiceImplementation final : public WIFS::Service {
         leveldb::Status s = db->Get(leveldb::ReadOptions(), std::to_string(request->key()).c_str(), &val);
         reply->set_status(s.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
         reply->set_val(val);
+        populate_hash_server_map(reply->mutable_hash_server_map());
         return grpc::Status::OK;
     }
 };
