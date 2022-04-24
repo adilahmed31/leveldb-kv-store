@@ -15,7 +15,7 @@
 #include <iostream>
 
 #define HEARTBEAT_TIMER 1000
-
+#define NUM_SERVERS 4
 // fix this
 std::string ip_servers_p2p[4] = {"localhost:50060","localhost:50061","localhost:50062","localhost:50063"};
 std::string ip_server_wifs[4] = {"localhost:50070","localhost:50071","localhost:50072","localhost:50073"};

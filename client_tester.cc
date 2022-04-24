@@ -10,11 +10,11 @@
 void tester() {
     char buf[BLOCK_SIZE + 1];
     for (int i = 0; i < BLOCK_SIZE; i++) buf[i] = 'X';
-    int rc = do_put(0, buf);
+    int rc = do_put(4, buf);
     if (rc == -1) std::cout << "PUT FAIL\n";
 
     buf[0] = '\0';
-    rc = do_get(0, buf);
+    rc = do_get(4, buf);
     if (rc == -1) std::cout << "GET FAIL\n";
 
     buf[BLOCK_SIZE] = '\0';
