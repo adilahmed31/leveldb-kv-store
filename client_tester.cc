@@ -7,14 +7,14 @@
 #include "client.cc"
 #include "wifs.grpc.pb.h"
 
-void tester() {
+void tester(int key) {
     char buf[BLOCK_SIZE + 1];
     for (int i = 0; i < BLOCK_SIZE; i++) buf[i] = 'X';
-    int rc = do_put(0, buf);
+    int rc = do_put(key, buf);
     if (rc == -1) std::cout << "PUT FAIL\n";
 
     buf[0] = '\0';
-    rc = do_get(0, buf);
+    rc = do_get(key, buf);
     if (rc == -1) std::cout << "GET FAIL\n";
 
     buf[BLOCK_SIZE] = '\0';
@@ -24,6 +24,8 @@ void tester() {
 
 int main(int argc, char* argv[]) {
     init();
-    tester();
+    tester(4);
+    tester(400);
+    tester(4000);
     return 0;
 }

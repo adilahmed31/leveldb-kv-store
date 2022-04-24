@@ -57,9 +57,11 @@ add_custom_command(
       ARGS --grpc_out "${CMAKE_CURRENT_BINARY_DIR}"
         --cpp_out "${CMAKE_CURRENT_BINARY_DIR}"
         -I "${p2p_proto_path}"
+        -I "${wifs_proto_path}"
         --plugin=protoc-gen-grpc="${_GRPC_CPP_PLUGIN_EXECUTABLE}"
         "${p2p_proto}"
-      DEPENDS "${p2p_proto}")
+      DEPENDS "${p2p_proto}" 
+      DEPENDS "${wifs_proto}")
 
 # Include generated *.pb.h files
 include_directories("${CMAKE_CURRENT_BINARY_DIR}")
