@@ -63,31 +63,36 @@ using wifs::WIFS;
 
 using p2p::HeartBeat;
 using p2p::PeerToPeer;
+using p2p::ServerId;
 
 char root_path[MAX_PATH_LENGTH];
 
 int server_id = 0;
+int last_server_id = 0; //This is to be used only by first server currently.
+
 std::string this_node_address;
 std::string cur_node_wifs_address;
 
-std::vector<std::unique_ptr<PeerToPeer::Stub>> client_stub_(NUM_SERVERS);
+std::vector<std::unique_ptr<PeerToPeer::Stub>> client_stub_(MAX_NUM_SERVERS);
 
 leveldb::DB* db;
 
 int get_dest_server_id(int key) {
     // compute the hash for the given key, find the corresponding server and return the id.
     // server id should range from [0, len(ip_server_wifs)), defined in commonheaders.h
-    return key % 4;
+    return somehashfunction(key);
 }
 
+/* 
 void init_connection_with_peers() {
-    for(int i = 0 ; i < NUM_SERVERS ; i++) {
+    for(int i = 0 ; i < MAX_NUM_SERVERS ; i++) {
         if(i == server_id) continue;
         client_stub_[i] = PeerToPeer::NewStub(grpc::CreateChannel(ip_servers_p2p[i], grpc::InsecureChannelCredentials()));
     }
 }
+*/
 
-void retry_connection_with_peer(int id) {
+void connect_with_peer(int id) {
     client_stub_[id] = PeerToPeer::NewStub(grpc::CreateChannel(ip_servers_p2p[id], grpc::InsecureChannelCredentials()));
 }
 
@@ -115,6 +120,12 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         return grpc::Status::OK;
     }
 
+    grpc::Status AllotServerId(ServerContext* context, const p2p::HeartBeat* request, p2p::ServerId* reply) {
+        std::cout << "Allot next available server Id" <<std::endl;
+        reply->set_id(++last_server_id);
+        return grpc::Status::OK;
+    }
+
     grpc::Status p2p_PUT(ServerContext* context, const wifs::PutReq* request, wifs::PutRes* reply) override {
         std::cout<<"got put call from peer \n";
         leveldb::Status s = db->Put(leveldb::WriteOptions(), std::to_string(request->key()).c_str(), request->val().c_str());
@@ -138,14 +149,15 @@ class WifsServiceImplementation final : public WIFS::Service {
         int dest_server_id = get_dest_server_id(request->key());
         if(dest_server_id != server_id) {
             std::cout<<"sending put to server "<<dest_server_id<<"\n";
-            if(client_stub_[dest_server_id] == NULL) retry_connection_with_peer(dest_server_id);
+            if(client_stub_[dest_server_id] == NULL) connect_with_peer(dest_server_id);
             ClientContext context;
             grpc::Status status = client_stub_[dest_server_id]->p2p_PUT(&context, *request, reply);
             if(!status.ok()) {
-                retry_connection_with_peer(dest_server_id);
+                connect_with_peer(dest_server_id);
                 ClientContext context;
                 status = client_stub_[dest_server_id]->p2p_PUT(&context, *request, reply);
             }
+            //else declare server failed - re assign keys
             reply->set_status(status.ok() ? wifs::PutRes_Status_PASS : wifs::PutRes_Status_FAIL);
             return grpc::Status::OK;
         }
@@ -159,14 +171,15 @@ class WifsServiceImplementation final : public WIFS::Service {
         int dest_server_id = get_dest_server_id(request->key());
         if(dest_server_id != server_id) {
             std::cout<<"sending get to server "<<dest_server_id<<"\n";
-            if(client_stub_[dest_server_id] == NULL) retry_connection_with_peer(dest_server_id);
+            if(client_stub_[dest_server_id] == NULL) connect_with_peer(dest_server_id);
             ClientContext context;
             grpc::Status status = client_stub_[dest_server_id]->p2p_GET(&context, *request, reply);
             if(!status.ok()) {
-                retry_connection_with_peer(dest_server_id);
+                connect_with_peer(dest_server_id);
                 ClientContext context;
                 status = client_stub_[dest_server_id]->p2p_GET(&context, *request, reply);
             }
+            //else declare server failed - re assign keys
             reply->set_status(status.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
             return grpc::Status::OK;
         }
@@ -203,16 +216,24 @@ void run_p2p_server() {
 
 int main(int argc, char** argv) {
 
-    if (argc < 2) {
-        std::cout << "Machine id not given\n";
-        exit(1);
-    }
+    //Check if firstserver exists
+    connect_with_peer(0);
+    ClientContext context;
+    p2p::HeartBeat hbrequest, hbreply;
+    p2p::ServerId idreply;
 
-    server_id = atoi(argv[1]);
-    std::cout << "got machine id as " << server_id << "\n";
-    
-    this_node_address = ip_servers_p2p[server_id];
-    cur_node_wifs_address = ip_server_wifs[server_id];
+    grpc::Status s = client_stub_[0]->Ping(&context, hbrequest, &hbreply);
+    if(s.ok()) {
+        ClientContext context;
+        s = client_stub_[0]->AllotServerId(&context, hbrequest, &idreply);
+        server_id = idreply.id();
+    }
+    //else: Declared self as first server (server_id = 0 already)
+
+    std::cout << "Set server id as " << server_id << "\n";
+
+    this_node_address = getP2PServerPort(server_id);
+    cur_node_wifs_address = getWifsServerPort(server_id);
 
     // Create server path if it doesn't exist
     DIR* dir = opendir(getServerDir(server_id).c_str());
@@ -231,8 +252,7 @@ int main(int argc, char** argv) {
     leveldb::Status status = leveldb::DB::Open(options, getServerDir(server_id).c_str(), &db);
     assert(status.ok());
 
-
-    init_connection_with_peers();
+    // init_connection_with_peers();
     std::thread p2p_server(run_p2p_server);
     run_wifs_server();
 
