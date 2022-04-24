@@ -76,6 +76,7 @@ std::string cur_node_wifs_address;
 std::vector<std::unique_ptr<PeerToPeer::Stub>> client_stub_(MAX_NUM_SERVERS);
 
 leveldb::DB* db;
+void heartbeat(int server_id);
 
 void broadcast_new_server_to_all(int new_server_id);
 
@@ -138,6 +139,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         broadcast_new_server_to_all(last_server_id);
         //Add to server list
         insert_server_entry(last_server_id);
+        std::thread heartbeat(last_server_id);
         print_ring();
         //heartbeat start
         populate_hash_server_map(reply->mutable_servermap());
@@ -262,6 +264,13 @@ void run_p2p_server() {
     std::cout << "P2P Server listening on port: " << this_node_address << std::endl;
 
     server->Wait();
+}
+
+void heartbeat(int server_id){
+    connect_with_peer(server_id);
+    ClientContext context;
+    p2p::HeartBeat hbrequest, hbreply;
+
 }
 
 int main(int argc, char** argv) {
