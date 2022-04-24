@@ -93,7 +93,7 @@ void init_connection_with_peers() {
 */
 
 void connect_with_peer(int id) {
-    client_stub_[id] = PeerToPeer::NewStub(grpc::CreateChannel(ip_servers_p2p[id], grpc::InsecureChannelCredentials()));
+    client_stub_[id] = PeerToPeer::NewStub(grpc::CreateChannel(getP2PServerAddr(id), grpc::InsecureChannelCredentials()));
 }
 
 void killserver() {
@@ -121,8 +121,10 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     }
 
     grpc::Status AllotServerId(ServerContext* context, const p2p::HeartBeat* request, p2p::ServerId* reply) {
-        std::cout << "Allot next available server Id" <<std::endl;
         reply->set_id(++last_server_id);
+        //Add to server list
+        insert_server_entry(last_server_id);
+        print_ring();
         return grpc::Status::OK;
     }
 
@@ -228,12 +230,17 @@ int main(int argc, char** argv) {
         s = client_stub_[0]->AllotServerId(&context, hbrequest, &idreply);
         server_id = idreply.id();
     }
-    //else: Declared self as first server (server_id = 0 already)
+    else{
+        //Declared self as first server (server_id = 0 already)
+        //Initiate server list
+        server_list_root = create_server_entry(0,RINGLENGTH);
+    }
+    
 
-    std::cout << "Set server id as " << server_id << "\n";
+    std::cout << "Set server id as " << server_id << std::endl;
 
-    this_node_address = getP2PServerPort(server_id);
-    cur_node_wifs_address = getWifsServerPort(server_id);
+    this_node_address = getP2PServerAddr(server_id);
+    cur_node_wifs_address = getWifsServerAddr(server_id);
 
     // Create server path if it doesn't exist
     DIR* dir = opendir(getServerDir(server_id).c_str());
