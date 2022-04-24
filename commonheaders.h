@@ -44,6 +44,7 @@ std::string getWifsServerAddr(int machine_id){
 
 //Consistent hashing - modify/replace hash function if required
 unsigned int somehashfunction(unsigned int x) {
+    x = x+8349;
     x = ((x >> 16) ^ x) * 0x45d9f3b;
     x = ((x >> 16) ^ x) * 0x45d9f3b;
     x = (x >> 16) ^ x;

@@ -79,8 +79,14 @@ leveldb::DB* db;
 
 int get_dest_server_id(int key) {
     // compute the hash for the given key, find the corresponding server and return the id.
-    // server id should range from [0, len(ip_server_wifs)), defined in commonheaders.h
-    return somehashfunction(key);
+    server_list_element *cur_el = server_list_root;
+    long key_hash = somehashfunction(key);
+    std::cout << "key: " << key << ", hash: " << key_hash <<std::endl;
+    while(cur_el!=NULL){
+        if(cur_el->max_key_hash >= key_hash) return cur_el->server_id;
+        cur_el = cur_el->next;
+    }
+    return -1; //this should never happen 
 }
 
 /* 
@@ -218,6 +224,21 @@ void run_p2p_server() {
 
 int main(int argc, char** argv) {
 
+    /*
+    Servers will be assigned (p2p,wifs) port numbers as (50060 + id, 50070+id), where id is incremented per server init.
+    First server id = 0 and this is the server the client talks to, for now (master/load balancer + server). 
+    First server maintains the list of servers and key ranges.
+    When a new server (except first server) comes up, it will contact it's future successor and ask for transfer of keys. (flush and fetch)
+    In the current scheme, the new server has to inform the first server (0) about it's presence.
+    First server adds new server to it's list and redirects future requests. 
+    
+    Edge cases/Improvements (to-do):
+    - Multiple first servers coming up
+    - Ring?
+    - Peer to peer without first server/ simplify load balancer?
+    - Chord?
+    */
+
     //Check if firstserver exists
     connect_with_peer(0);
     ClientContext context;
@@ -232,7 +253,7 @@ int main(int argc, char** argv) {
     }
     else{
         //Declared self as first server (server_id = 0 already)
-        //Initiate server list
+        //Initiate server list 
         server_list_root = create_server_entry(0,RINGLENGTH);
     }
     
