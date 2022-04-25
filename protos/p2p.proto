@@ -9,6 +9,8 @@ service PeerToPeer {
     rpc p2p_GET(wifs.GetReq) returns (wifs.GetRes){}
     rpc p2p_PUT(wifs.PutReq) returns (wifs.PutRes){}
     rpc AllotServerId(HeartBeat) returns (ServerId){}
+    rpc BroadcastServerId(ServerId) returns (HeartBeat){}
+    rpc InitializeNewServer(HeartBeat) returns (InitMap){}
 }
 
 message HeartBeat {
@@ -20,6 +22,10 @@ message HeartBeat {
         READY = 1;
     }
     State state = 1;
+}
+
+message InitMap{
+    map<int64, int32> servermap = 1;
 }
 
 message ServerId {
