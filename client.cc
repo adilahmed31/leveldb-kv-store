@@ -25,4 +25,3 @@ int do_put(int key, char* val) {
     int rc = options.wifsclient->wifs_PUT(key, val);
     return rc;
 }
-

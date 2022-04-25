@@ -64,11 +64,16 @@ using wifs::WIFS;
 using p2p::HeartBeat;
 using p2p::PeerToPeer;
 using p2p::ServerId;
+using p2p::FlushRes;
 
 char root_path[MAX_PATH_LENGTH];
 
 int server_id = 0;
 int last_server_id = 0; //This is to be used only by first server currently.
+
+int ring_id = 0;
+int last_ring_id = 0;
+int successor_server_id = 0;
 
 std::string this_node_address;
 std::string cur_node_wifs_address;
@@ -123,6 +128,27 @@ void populate_hash_server_map(google::protobuf::Map<long, int>* map) {
     *map = google::protobuf::Map<long, int>(server_map.begin(), server_map.end());
 }
 
+// Server IDs don't correspond to ring positions. Update ring position to a separate variable
+void update_ring_id(){
+    for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
+        if(it->second == server_id){
+            ring_id = distance(server_map.begin(), server_map.find(it->first));
+            auto it2 = std::next(it,1);
+            if(it2 != server_map.end()){
+                successor_server_id = it2->second;
+            }
+            else{
+                successor_server_id = server_map.begin()->second;
+            }
+        }
+        else if (it->second == last_server_id){
+            last_ring_id = distance(server_map.begin(), server_map.find(it->first));
+        }
+    }
+    std::cout <<" Ring ID of this server : " <<ring_id <<" Successor server ID: "<<successor_server_id<<std::endl;
+}
+
+
 class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     grpc::Status Ping(ServerContext* context, const p2p::HeartBeat* request, p2p::HeartBeat* reply) {
         std::cout << "Ping!" <<std::endl;
@@ -138,6 +164,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         broadcast_new_server_to_all(last_server_id);
         //Add to server list
         insert_server_entry(last_server_id);
+        update_ring_id();
         print_ring();
         //heartbeat start
         populate_hash_server_map(reply->mutable_servermap());
@@ -146,7 +173,9 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
 
     grpc::Status BroadcastServerId(ServerContext* context, const p2p::ServerId* request, p2p::HeartBeat* reply) {
         //Add new serverId to server list
-        insert_server_entry(request->id());
+        last_server_id = request->id();
+        insert_server_entry(last_server_id);
+        update_ring_id();
         std::cout << "new server added: " << request->id() << std::endl;
         print_ring();
         return grpc::Status::OK;
@@ -165,6 +194,13 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         leveldb::Status s = db->Get(leveldb::ReadOptions(), std::to_string(request->key()).c_str(), &val);
         reply->set_status(s.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
         reply->set_val(val);
+        return grpc::Status::OK;
+    }
+    //If this node is the predecessor of the newly joined node, commit the in-memory buffer to disk.
+    grpc::Status CompactMemTable(ServerContext* context, const p2p::HeartBeat* request, p2p::FlushRes* reply){
+        std::cout <<" predecessor asked to commit entries to disk" <<std::endl;
+        leveldb::Status status = db->TEST_CompactMemTable(); //this relies on a patched version of levelDB (https://github.com/adilahmed31/leveldb)
+        reply->set_status(status.ok() ? p2p::FlushRes_Status_PASS : p2p::FlushRes_Status_FAIL);
         return grpc::Status::OK;
     }
 
@@ -228,6 +264,7 @@ class WifsServiceImplementation final : public WIFS::Service {
     }
 };
 
+
 void broadcast_new_server_to_all(int new_server_id){
   for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
     if (it->second > 0){ //don't broadcast to self (server 0)
@@ -242,6 +279,7 @@ void broadcast_new_server_to_all(int new_server_id){
   }
 }
 
+//Start listener for incoming client requests
 void run_wifs_server() {
     WifsServiceImplementation service;
     ServerBuilder wifsServer;
@@ -252,6 +290,7 @@ void run_wifs_server() {
     server->Wait();
 }
 
+//Start listener for incoming p2p requests (From other servers)
 void run_p2p_server() {
     PeerToPeerServiceImplementation service;
     ServerBuilder p2pServer;
@@ -270,22 +309,16 @@ int main(int argc, char** argv) {
     Servers will be assigned (p2p,wifs) port numbers as (50060 + id, 50070+id), where id is incremented per server init.
     First server id = 0 and this is the server the client talks to, for now (master/load balancer + server). 
     First server maintains the list of servers and key ranges.
-    When a new server (except first server) comes up, it will contact it's future successor and ask for transfer of keys. (flush and fetch)
+    When a new server (except first server) comes up, it will contact it's future successor and ask for transfer of keys. (flush)
     In the current scheme, the new server has to inform the first server (0) about it's presence.
     First server adds new server to it's list and redirects future requests. 
-    
-    Edge cases/Improvements (to-do):
-    - Multiple first servers coming up
-    - Ring?
-    - Peer to peer without first server/ simplify load balancer?
-    - Chord?
     */
 
     //Check if firstserver exists
     connect_with_peer(0);
     ClientContext context;
     p2p::HeartBeat hbrequest, hbreply;
-
+    //Check if the master is up
     grpc::Status s = client_stub_[0]->Ping(&context, hbrequest, &hbreply);
     if(s.ok()) {
         p2p::ServerId idreply;
@@ -297,14 +330,23 @@ int main(int argc, char** argv) {
         s = client_stub_[0]->InitializeNewServer(&context_init, hbrequest, &servermap_reply);
         server_map = std::map<long,int>(servermap_reply.servermap().begin(),servermap_reply.servermap().end());
         std::cout << "servermap initialized" << std::endl;
+        update_ring_id();
+        p2p::HeartBeat flushrequest;
+        p2p::FlushRes flushreply;
+        ClientContext context_flush;
+        if(client_stub_[successor_server_id] == NULL) connect_with_peer(successor_server_id);
+        s = client_stub_[successor_server_id]->CompactMemTable(&context_flush, flushrequest, &flushreply);
+        if (flushreply.status() == p2p::FlushRes_Status_FAIL){
+            std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
+        }
         print_ring();
     }
     else{
+        //Master failure case. Appoint itself master
         //Declared self as first server (server_id = 0 already)
         //Initiate server list 
         insert_server_entry(0);
     }
-
     std::cout << "Set server id as " << server_id << std::endl;
 
     this_node_address = getP2PServerAddr(server_id);
@@ -324,6 +366,7 @@ int main(int argc, char** argv) {
     leveldb::Env* env = new CustomEnv(actual_env);
     options.env = env;
 
+    std::cout << getServerDir(server_id) <<std::endl;
     leveldb::Status status = leveldb::DB::Open(options, getServerDir(server_id).c_str(), &db);
     assert(status.ok());
 

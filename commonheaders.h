@@ -10,7 +10,8 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
-
+#include <sys/types.h>
+#include <pwd.h>
 #include <iostream>
 
 #define MAX_PATH_LENGTH 1000
@@ -23,7 +24,11 @@ int primary_index = 0;
 int single_server = 0;
 
 std::string getServerDir(int machine_id){
-        return "/users/oahmed4/.server" +  std::to_string(machine_id);
+    const char *homedir;
+    if ((homedir = getenv("HOME")) == NULL) {
+        homedir = getpwuid(getuid())->pw_dir;
+    }
+        return std::string(homedir) + "/.server" +  std::to_string(machine_id);
 }
 
 std::string getServerPath(int machine_id) {
