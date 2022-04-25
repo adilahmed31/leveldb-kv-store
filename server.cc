@@ -120,10 +120,10 @@ void get(void) {
     return;
 }
 
-void populate_hash_server_map(google::protobuf::Map<std::__cxx11::basic_string<char>, std::__cxx11::basic_string<char>>* map) {
-    std::map<std::string, std::string> ht;
-    ht["test_hash_ub"] = "server ip";
-    *map = google::protobuf::Map<std::string, std::string>(ht.begin(), ht.end());
+void populate_hash_server_map(google::protobuf::Map<long, int>* map) {
+    std::map<long, int> ht;
+    ht[1024] = 2;
+    *map = google::protobuf::Map<long, int>(ht.begin(), ht.end());
 }
 
 class PeerToPeerServiceImplementation final : public PeerToPeer::Service {

@@ -27,7 +27,7 @@ class WifsClient {
    public:
     WifsClient(std::shared_ptr<Channel> channel) : stub_(WIFS::NewStub(channel)) {}
 
-    void print_map(const google::protobuf::Map<std::string, std::string> &ht) {
+    void print_map(const google::protobuf::Map<long, int> &ht) {
         for(auto it = ht.begin() ; it != ht.end() ; it++) {
             std::cout<<it->first<<" - "<<it->second<<"\n";
         }
