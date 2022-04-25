@@ -20,6 +20,8 @@ message PutRes {
     PASS = 1;
   }
   Status status = 1;
+
+  map<int64, int32> hash_server_map = 2;
 }
 
 message GetReq {
@@ -33,4 +35,6 @@ message GetRes {
   }
   Status status = 1;
   bytes val = 2;
+
+  map<int64, int32> hash_server_map = 3;
 }
