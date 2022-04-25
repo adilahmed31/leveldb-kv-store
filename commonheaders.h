@@ -28,15 +28,7 @@ std::string getServerDir(int machine_id){
     if ((homedir = getenv("HOME")) == NULL) {
         homedir = getpwuid(getuid())->pw_dir;
     }
-        return std::string(homedir) + "/.server" +  std::to_string(machine_id);
-}
-
-std::string getServerPath(int machine_id) {
-    return getServerDir(machine_id) + "/kv" ;//"/file_" + address;
-}
-
-std::string getLastAddressPath(int machine_id) {
-    return getServerDir(machine_id) + "/lastaddr" ;//"/file_" + address;
+        return std::string(homedir) + "/.server" + std::to_string(machine_id);
 }
 
 std::string getP2PServerAddr(int machine_id){

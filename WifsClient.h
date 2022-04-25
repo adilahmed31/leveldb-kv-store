@@ -21,7 +21,7 @@ using wifs::WIFS;
 using wifs::PutReq;
 using wifs::PutRes;
 
-#define BLOCK_SIZE 4096
+#define BLOCK_SIZE 100000
 
 class WifsClient {
    public:

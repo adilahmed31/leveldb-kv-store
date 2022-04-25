@@ -64,7 +64,8 @@ using wifs::WIFS;
 using p2p::HeartBeat;
 using p2p::PeerToPeer;
 using p2p::ServerId;
-using p2p::FlushRes;
+using p2p::StatusRes;
+using p2p::SplitReq;
 
 char root_path[MAX_PATH_LENGTH];
 
@@ -197,12 +198,79 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         return grpc::Status::OK;
     }
     //If this node is the predecessor of the newly joined node, commit the in-memory buffer to disk.
-    grpc::Status CompactMemTable(ServerContext* context, const p2p::HeartBeat* request, p2p::FlushRes* reply){
+    //Don't need this with new implementation (TODO (Adil): Remove when current impl works)
+    grpc::Status CompactMemTable(ServerContext* context, const p2p::HeartBeat* request, p2p::StatusRes* reply){
         std::cout <<" predecessor asked to commit entries to disk" <<std::endl;
         leveldb::Status status = db->TEST_CompactMemTable(); //this relies on a patched version of levelDB (https://github.com/adilahmed31/leveldb)
-        reply->set_status(status.ok() ? p2p::FlushRes_Status_PASS : p2p::FlushRes_Status_FAIL);
+        reply->set_status(status.ok() ? p2p::StatusRes_Status_PASS : p2p::StatusRes_Status_FAIL);
         return grpc::Status::OK;
     }
+
+    //When a new node joins the ring, it calls SplitDB on its successor. 
+    //The successor iterates over the keys. When it sees a hash value matching the range sent in the 
+    //RPC request, it writes it to the levelDB server of the calling node and deletes it from its own
+    grpc::Status SplitDB(ServerContext* context, const p2p::SplitReq* request, p2p::StatusRes* reply){
+        std::cout << "Server "<< request->id() <<" asked this server to split database" << std:endl;
+
+        leveldb:WriteOptions w;
+        leveldb::WriteBatch writebatch; //batched writes to new db
+        leveldb::WriteBatch deletebatch; //batched deletes from old db
+        //Iterator over DB of old node
+        leveldb::Iterator* iter = db->NewIterator(ReadOptions());
+        
+        //Open new DB for joined node
+        leveldb::Status s = leveldb::DB::Open(options, getServerDir(request->id()), &db_split);
+        if(!s.ok()){
+            std::cout << "Error opening DB of new node" <<std::endl;
+            reply->set_state(p2p::StatusRes_Status_FAIL);
+            return grpc::Status::OK;
+        }
+
+        //Iterate over old DB and create batches for operations
+        for(iter->SeekToFirst(); iter->Valid(); iter->Next()){
+            if (somehashfunction(iter->key()) <= request->range_end()){
+                writebatch.Put(iter->key(), iter->value());
+                deletebatch.Delete(iter->key(),iter->value());
+            }
+        }
+
+        db_split->Write(w, &writebatch);
+        db->Write(w, &deletebatch);
+        delete db_split; //close new db so it can be re-opened by the calling server
+        reply->set_state(p2p::StatusRes_Status_PASS);
+        return grpc::Status::OK;
+    }
+
+    //When the master detects a failed server, it calls MergeDB on its successor
+    //The successor iterates over the failed node DB, reads in all its keys and adds it to a batched write
+    //The batched write is applied to the successor's DB
+    grpc::Status MergeDB(ServerContext* context, const p2p::ServerId* request, p2p::StatusRes* reply){
+        std::cout << "Master asked this server to merge with Server "<< request->id() <<std::endl;
+        leveldb::Options options;
+        leveldb::DB* db_merge;
+        options.create_if_missing = false; //This should never be missing
+
+        leveldb::Status s = leveldb::DB::Open(options, getServerDir(request->id()), &db_merge);
+        if(!s.ok()){
+            std::cout << "Error opening DB of failed node" <<std::endl;
+            reply->set_state(p2p::StatusRes_Status_FAIL);
+            return grpc::Status::OK;
+        }
+        leveldb::Iterator* iter = db_merge->NewIterator(leveldb::ReadOptions());
+
+        levelDB::WriteOptions w;
+        leveldb::WriteBatch batch;
+
+        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        //write to batch
+            batch.Put(iter->key(), iter->value());
+        }
+        db->Write(w,&batch);
+        delete db_merge; //close the failed server DB
+        reply->set_state(p2p::StatusRes_Status_PASS);
+        return grpc::Status::OK;
+    }
+
 
 };
 
@@ -331,11 +399,11 @@ int main(int argc, char** argv) {
         server_map = std::map<long,int>(servermap_reply.servermap().begin(),servermap_reply.servermap().end());
         std::cout << "servermap initialized" << std::endl;
         update_ring_id();
-        p2p::HeartBeat flushrequest;
-        p2p::FlushRes flushreply;
+        p2p::HeartBeat fsplitrequest;
+        p2p::StatusRes splitreply;
         ClientContext context_flush;
         if(client_stub_[successor_server_id] == NULL) connect_with_peer(successor_server_id);
-        s = client_stub_[successor_server_id]->CompactMemTable(&context_flush, flushrequest, &flushreply);
+        s = client_stub_[successor_server_id]->SplitDB(&context_flush, splitrequest, &splitreply);
         if (flushreply.status() == p2p::FlushRes_Status_FAIL){
             std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
         }
