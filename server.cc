@@ -77,16 +77,15 @@ std::vector<std::unique_ptr<PeerToPeer::Stub>> client_stub_(MAX_NUM_SERVERS);
 
 leveldb::DB* db;
 
+void broadcast_new_server_to_all(int new_server_id);
+
 int get_dest_server_id(int key) {
     // compute the hash for the given key, find the corresponding server and return the id.
-    server_list_element *cur_el = server_list_root;
     long key_hash = somehashfunction(key);
     std::cout << "key: " << key << ", hash: " << key_hash <<std::endl;
-    while(cur_el!=NULL){
-        if(cur_el->max_key_hash >= key_hash) return cur_el->server_id;
-        cur_el = cur_el->next;
-    }
-    return -1; //this should never happen 
+    auto it = server_map.lower_bound(key_hash);
+    if(it==server_map.end()) it = server_map.begin();
+    return it->second; //this should never happen 
 }
 
 /* 
@@ -121,9 +120,7 @@ void get(void) {
 }
 
 void populate_hash_server_map(google::protobuf::Map<long, int>* map) {
-    std::map<long, int> ht;
-    ht[1024] = 2;
-    *map = google::protobuf::Map<long, int>(ht.begin(), ht.end());
+    *map = google::protobuf::Map<long, int>(server_map.begin(), server_map.end());
 }
 
 class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
@@ -134,8 +131,23 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
 
     grpc::Status AllotServerId(ServerContext* context, const p2p::HeartBeat* request, p2p::ServerId* reply) {
         reply->set_id(++last_server_id);
+        return grpc::Status::OK;
+    }
+
+    grpc::Status InitializeNewServer(ServerContext* context, const p2p::HeartBeat* request, p2p::InitMap* reply) {
+        broadcast_new_server_to_all(last_server_id);
         //Add to server list
         insert_server_entry(last_server_id);
+        print_ring();
+        //heartbeat start
+        populate_hash_server_map(reply->mutable_servermap());
+        return grpc::Status::OK;
+    }
+
+    grpc::Status BroadcastServerId(ServerContext* context, const p2p::ServerId* request, p2p::HeartBeat* reply) {
+        //Add new serverId to server list
+        insert_server_entry(request->id());
+        std::cout << "new server added: " << request->id() << std::endl;
         print_ring();
         return grpc::Status::OK;
     }
@@ -216,6 +228,20 @@ class WifsServiceImplementation final : public WIFS::Service {
     }
 };
 
+void broadcast_new_server_to_all(int new_server_id){
+  for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
+    if (it->second > 0){ //don't broadcast to self (server 0)
+        if(client_stub_[it->second] == NULL) connect_with_peer(it->second);
+        
+        ClientContext context;
+        p2p::HeartBeat hbreply;
+        p2p::ServerId idrequest;
+        idrequest.set_id(new_server_id);
+        grpc::Status s = client_stub_[it->second]->BroadcastServerId(&context, idrequest, &hbreply);
+    }
+  }
+}
+
 void run_wifs_server() {
     WifsServiceImplementation service;
     ServerBuilder wifsServer;
@@ -259,20 +285,25 @@ int main(int argc, char** argv) {
     connect_with_peer(0);
     ClientContext context;
     p2p::HeartBeat hbrequest, hbreply;
-    p2p::ServerId idreply;
 
     grpc::Status s = client_stub_[0]->Ping(&context, hbrequest, &hbreply);
     if(s.ok()) {
+        p2p::ServerId idreply;
+        p2p::InitMap servermap_reply;
         ClientContext context;
         s = client_stub_[0]->AllotServerId(&context, hbrequest, &idreply);
         server_id = idreply.id();
+        ClientContext context_init;
+        s = client_stub_[0]->InitializeNewServer(&context_init, hbrequest, &servermap_reply);
+        server_map = std::map<long,int>(servermap_reply.servermap().begin(),servermap_reply.servermap().end());
+        std::cout << "servermap initialized" << std::endl;
+        print_ring();
     }
     else{
         //Declared self as first server (server_id = 0 already)
         //Initiate server list 
-        server_list_root = create_server_entry(0,RINGLENGTH);
+        insert_server_entry(0);
     }
-    
 
     std::cout << "Set server id as " << server_id << std::endl;
 
