@@ -16,7 +16,9 @@
 #define MAX_PATH_LENGTH 1000
 #define HEARTBEAT_TIMER 1000
 #define RINGLENGTH 255
-#define MAX_NUM_SERVERS 100 //limiting max servers to use static array for client_stub - can be depreciated if client_stub need not be reused
+
+//limiting max servers to use static array for client_stub - can be depreciated if client_stub need not be reused
+#define MAX_NUM_SERVERS 100 
 
 int read_index = 0;
 int primary_index = 0;

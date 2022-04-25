@@ -40,6 +40,7 @@ class WifsClient {
         request.set_key(key);
         Status status = stub_->wifs_GET(&context, request, &reply);
         print_map(reply.hash_server_map());
+        server_map = std::map<long,int>(reply.hash_server_map().begin(), reply.hash_server_map().end());
         strncpy(val, reply.val().c_str(), BLOCK_SIZE);
         return status.ok() ? 0 : -1;
     }
@@ -53,6 +54,7 @@ class WifsClient {
 
         Status status = stub_->wifs_PUT(&context, request, &reply);
         print_map(reply.hash_server_map());
+        server_map = std::map<long,int>(reply.hash_server_map().begin(), reply.hash_server_map().end());
         return status.ok() ? 0 : -1;
     }
 
