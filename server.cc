@@ -273,12 +273,12 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
 
     //If this node is the predecessor of the newly joined node, commit the in-memory buffer to disk.
     //Don't need this with new implementation (TODO (Adil): Remove when current impl works)
-    grpc::Status CompactMemTable(ServerContext* context, const p2p::HeartBeat* request, p2p::StatusRes* reply){
-        std::cout <<" predecessor asked to commit entries to disk" <<std::endl;
-        leveldb::Status status = db->TEST_CompactMemTable(); //this relies on a patched version of levelDB (https://github.com/adilahmed31/leveldb)
-        reply->set_status(status.ok() ? p2p::StatusRes_Status_PASS : p2p::StatusRes_Status_FAIL);
-        return grpc::Status::OK;
-    }
+    // grpc::Status CompactMemTable(ServerContext* context, const p2p::HeartBeat* request, p2p::StatusRes* reply){
+    //     std::cout <<" predecessor asked to commit entries to disk" <<std::endl;
+    //     leveldb::Status status = db->TEST_CompactMemTable(); //this relies on a patched version of levelDB (https://github.com/adilahmed31/leveldb)
+    //     reply->set_status(status.ok() ? p2p::StatusRes_Status_PASS : p2p::StatusRes_Status_FAIL);
+    //     return grpc::Status::OK;
+    // }
 
     //When a new node joins the ring, it calls SplitDB on its successor. 
     //The successor iterates over the keys. When it sees a hash value matching the range sent in the 
