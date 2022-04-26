@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <csignal>
 #include <chrono>
+#include <ctime>
 #include <condition_variable>
 #include <typeinfo>
 
@@ -85,7 +86,7 @@ std::string cur_node_wifs_address;
 
 std::vector<std::unique_ptr<PeerToPeer::Stub>> client_stub_(MAX_NUM_SERVERS);
 
-struct timespec* ts;
+auto then = std::chrono::system_clock::now();
 std::condition_variable cv;
 
 leveldb::DB* db;
@@ -117,28 +118,6 @@ int find_successor(int pred_server_id){
     std::cout<<"Successor ID of server " << pred_server_id << " is: " << successor_id << std::endl;
     return successor_id;
 }
-
-void get_time(struct timespec* ts)
-{
-    clock_gettime(CLOCK_MONOTONIC, ts);
-}
-
-double get_time_diff(struct timespec* before, struct timespec* after)
-{
-    double delta_s = after->tv_sec - before->tv_sec;
-    double delta_ns = after->tv_nsec - before->tv_nsec;
-
-    return delta_s + (delta_ns * 1e-9);
-}
-
-/* 
-void init_connection_with_peers() {
-    for(int i = 0 ; i < MAX_NUM_SERVERS ; i++) {
-        if(i == server_id) continue;
-        client_stub_[i] = PeerToPeer::NewStub(grpc::CreateChannel(ip_servers_p2p[i], grpc::InsecureChannelCredentials()));
-    }
-}
-*/
 
 void connect_with_peer(int id) {
     client_stub_[id] = PeerToPeer::NewStub(grpc::CreateChannel(getP2PServerAddr(id), grpc::InsecureChannelCredentials()));
@@ -211,8 +190,8 @@ int merge_ldb(int failed_server_id){
 
 class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     grpc::Status Ping(ServerContext* context, const p2p::HeartBeat* request, p2p::HeartBeat* reply) {
-        //std::cout << "Ping!" <<std::endl;
-        //get_time(ts);
+        std::cout << "Ping!" <<std::endl;
+        then = std::chrono::system_clock::now();
         return grpc::Status::OK;
     }
 
@@ -491,6 +470,21 @@ void heartbeat(int heartbeat_server_id){
             // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry  
 }
 
+void watch_for_master() {
+    while(true) {
+        auto now = std::chrono::system_clock::now();
+        std::chrono::duration<double> diff = now - then;
+        std::cout<<"Time elapsed between latest ping from master till now = "<<diff.count()<<std::endl;
+        if(diff.count() > 5) {
+            std::cout<<"FIND NEW MASTER"<<std::endl;
+            /* TODO: find new master from server_map
+             additionally, whoever is the new master will now persist its ip on a file that a newly joined server 
+             can use to connect to master, kind of like how bigtable master does using Chubby. (figure out and handle locks maybe?)*/
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
+    }
+}
+
 
 void sigintHandler(int sig_num)
 {
@@ -520,19 +514,13 @@ int main(int argc, char** argv) {
     // TODO: not sure if needed, maybe useful later?
     int isMaster = 1;
     grpc::Status s = client_stub_[0]->Ping(&context, hbrequest, &hbreply);
+    
     if(s.ok()) {
         p2p::ServerId idreply;
         ClientContext context;
         s = client_stub_[0]->AllotServerId(&context, hbrequest, &idreply);
         server_id = idreply.id();
         isMaster = 0;
-
-        // std::thread watch(watch_time_thread);
-        // if(diff > 5) {
-        //     std::cout<<"FIND NEW MASTER"<<std::endl;
-        //     // init master
-        // }
-
 
         server_map = std::map<long,int>(idreply.servermap().begin(),idreply.servermap().end());
         std::cout << "servermap initialized" << std::endl;
@@ -562,8 +550,11 @@ int main(int argc, char** argv) {
     std::thread p2p_server(run_p2p_server);
 
     ClientContext context_init;
-    if(!isMaster) s = client_stub_[0]->InitializeNewServer(&context_init, hbrequest, &hbreply);
-               
+    if(!isMaster) {
+        s = client_stub_[0]->InitializeNewServer(&context_init, hbrequest, &hbreply);
+        std::thread watch(watch_for_master);
+        watch.detach();
+    }
     cur_node_wifs_address = getWifsServerAddr(server_id);
 
     // Create server path if it doesn't exist
