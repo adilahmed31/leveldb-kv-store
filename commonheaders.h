@@ -10,7 +10,8 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
-
+#include <sys/types.h>
+#include <pwd.h>
 #include <iostream>
 
 #define MAX_PATH_LENGTH 1000
@@ -25,15 +26,11 @@ int primary_index = 0;
 int single_server = 0;
 
 std::string getServerDir(int machine_id){
-        return "/users/oahmed4/.server" +  std::to_string(machine_id);
-}
-
-std::string getServerPath(int machine_id) {
-    return getServerDir(machine_id) + "/kv" ;//"/file_" + address;
-}
-
-std::string getLastAddressPath(int machine_id) {
-    return getServerDir(machine_id) + "/lastaddr" ;//"/file_" + address;
+    const char *homedir;
+    if ((homedir = getenv("HOME")) == NULL) {
+        homedir = getpwuid(getuid())->pw_dir;
+    }
+        return std::string(homedir) + "/.server" + std::to_string(machine_id);
 }
 
 std::string getP2PServerAddr(int machine_id){
@@ -45,7 +42,8 @@ std::string getWifsServerAddr(int machine_id){
 }
 
 //Consistent hashing - modify/replace hash function if required
-unsigned int somehashfunction(unsigned int x) {
+unsigned int somehashfunction(std::string s) {
+    std::size_t x = std::hash<std::string>{}(s);
     x = x+8349;
     x = ((x >> 16) ^ x) * 0x45d9f3b;
     x = ((x >> 16) ^ x) * 0x45d9f3b;
@@ -60,12 +58,16 @@ unsigned int somehashfunction(unsigned int x) {
 std::map<long,int> server_map;
 
 void insert_server_entry(int server_id){
-  server_map[somehashfunction(server_id)] = server_id;
+  server_map[somehashfunction(std::to_string(server_id))] = server_id;
+}
+
+void remove_server_entry(int server_id){
+    server_map.erase(somehashfunction(std::to_string(server_id)));
 }
 
 void print_ring(){
     for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
-        std::cout<<it->first<<" - "<<it->second<<"\n";
+        std::cout<<it->first<<" - "<<it->second<<std::endl;
     }
 }
 

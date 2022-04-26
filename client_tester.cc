@@ -7,9 +7,9 @@
 #include "client.cc"
 #include "wifs.grpc.pb.h"
 
-void tester(int key) {
+void tester(char* key) {
     char buf[BLOCK_SIZE + 1];
-    for (int i = 0; i < BLOCK_SIZE; i++) buf[i] = 'X';
+    for (int i = 0; i < BLOCK_SIZE; i++) buf[i] = 'Z';
     int rc = do_put(key, buf);
     if (rc == -1) std::cout << "PUT FAIL\n";
 
@@ -23,9 +23,15 @@ void tester(int key) {
 }
 
 int main(int argc, char* argv[]) {
-    // init();
-    tester(4);
-    tester(400);
-    tester(4000);
+    char* key = (char*)"4";
+    tester(key);
+    key = (char*)"400";
+    tester(key);
+    key = (char*)"4000";
+    tester(key);
+    key = (char*)"40000";
+    tester(key);
+    key = (char*)"400000";
+    tester(key);
     return 0;
 }

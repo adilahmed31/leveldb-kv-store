@@ -21,7 +21,7 @@ using wifs::WIFS;
 using wifs::PutReq;
 using wifs::PutRes;
 
-#define BLOCK_SIZE 4096
+#define BLOCK_SIZE 100000
 
 class WifsClient {
    public:
@@ -33,11 +33,12 @@ class WifsClient {
         }
     }
 
-    int wifs_GET(int key, char val[BLOCK_SIZE]) {
+    int wifs_GET(char* key, char val[BLOCK_SIZE]) {
+
         ClientContext context;
         GetReq request;
         GetRes reply;
-        request.set_key(key);
+        request.set_key(std::string(key));
         Status status = stub_->wifs_GET(&context, request, &reply);
         print_map(reply.hash_server_map());
         server_map = std::map<long,int>(reply.hash_server_map().begin(), reply.hash_server_map().end());
@@ -45,11 +46,11 @@ class WifsClient {
         return status.ok() ? 0 : -1;
     }
 
-    int wifs_PUT(int key, char val[BLOCK_SIZE]) {
+    int wifs_PUT(char* key, char val[BLOCK_SIZE]) {
         ClientContext context;
         PutReq request;
         PutRes reply;
-        request.set_key(key);
+        request.set_key(std::string(key));
         request.set_val(std::string(val));
 
         Status status = stub_->wifs_PUT(&context, request, &reply);

@@ -10,7 +10,7 @@ service WIFS {
 }
 
 message PutReq {
-  int32 key = 1;
+  string key = 1;
   bytes val = 2;
 }
 
@@ -25,7 +25,7 @@ message PutRes {
 }
 
 message GetReq {
-  int32 key = 1;
+  string key = 1;
 }
 
 message GetRes {
