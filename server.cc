@@ -18,6 +18,7 @@
 #include <csignal>
 #include <chrono>
 #include <condition_variable>
+#include <typeinfo>
 
 #include <fstream>
 #include <iostream>
@@ -88,10 +89,16 @@ struct timespec* ts;
 std::condition_variable cv;
 
 leveldb::DB* db;
-void heartbeat(int server_id);
+void heartbeat(int heartbeat_server_id);
 void heartbeat_new();
 
 void broadcast_new_server_to_all(int new_server_id, int mode);
+
+auto getServerIteratorInMap(int target_server_id) -> std::map<long,int>::iterator{
+    int hash_val = somehashfunction(std::to_string(target_server_id));
+    auto it = server_map.find(hash_val);
+    return it;
+}
 
 int get_dest_server_id(std::string key) {
     // compute the hash for the given key, find the corresponding server and return the id.
@@ -162,8 +169,7 @@ void populate_hash_server_map(google::protobuf::Map<long, int>* map) {
 // Server IDs don't correspond to ring positions. Update ring position to a separate variable
 void update_ring_id(){
     //Find Ring ID and successor ID
-    int hash_val = somehashfunction(std::to_string(server_id));
-    auto it = server_map.find(hash_val);
+    auto it = getServerIteratorInMap(server_id);
     int ring_id = distance(server_map.begin(), it);
     auto it2 = std::next(it,1);
     int successor_server_id = (it2 == server_map.end() ? server_map.begin()->second : it2->second);
@@ -295,13 +301,10 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
             reply->set_status(p2p::StatusRes_Status_FAIL);
             return grpc::Status::OK;
         }
-        int this_range_end;
+        
         //find range end for current server
-         for (auto it = server_map.begin(); it != server_map.end(); it++){
-            if(server_id == it->second){
-                this_range_end = it->first;
-            }
-        }
+        int this_range_end = getServerIteratorInMap(server_id)->first;
+        
         //Iterate over old DB and create batches for operations
         for(iter->SeekToFirst(); iter->Valid(); iter->Next()){
             if ((somehashfunction(iter->key().ToString()) <= request->range_end()) && (somehashfunction(iter->key().ToString()) > this_range_end)){

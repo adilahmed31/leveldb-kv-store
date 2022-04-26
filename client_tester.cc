@@ -9,12 +9,12 @@
 
 void tester(char* key) {
     char buf[BLOCK_SIZE + 1];
-    // for (int i = 0; i < BLOCK_SIZE; i++) buf[i] = 'Z';
-    // int rc = do_put(key, buf);
-    // if (rc == -1) std::cout << "PUT FAIL\n";
+    for (int i = 0; i < BLOCK_SIZE; i++) buf[i] = 'Z';
+    int rc = do_put(key, buf);
+    if (rc == -1) std::cout << "PUT FAIL\n";
 
     buf[0] = '\0';
-    int rc = do_get(key, buf);
+    rc = do_get(key, buf);
     if (rc == -1) std::cout << "GET FAIL\n";
 
     buf[BLOCK_SIZE] = '\0';
