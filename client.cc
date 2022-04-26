@@ -21,7 +21,7 @@ int do_get(char* key, char* val) {
     return rc;
 }
 
-int do_put(int key, char* val) {
+int do_put(char* key, char* val) {
     auto it = server_map.lower_bound(somehashfunction(std::string(key)));
     if(options.wifsclient[it->second] == NULL) init(it->second);
     int rc = options.wifsclient[it->second]->wifs_PUT(key, val);

@@ -23,7 +23,6 @@ void tester(char* key) {
 }
 
 int main(int argc, char* argv[]) {
-    init();
     char* key = (char*)"4";
     tester(key);
     key = (char*)"400";
