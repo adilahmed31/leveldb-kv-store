@@ -10,7 +10,7 @@ service PeerToPeer {
     rpc p2p_PUT(wifs.PutReq) returns (wifs.PutRes){}
     rpc AllotServerId(HeartBeat) returns (ServerId){}
     rpc BroadcastServerId(ServerId) returns (HeartBeat){}
-    rpc InitializeNewServer(HeartBeat) returns (InitMap){}
+    rpc InitializeNewServer(HeartBeat) returns (HeartBeat){}
     rpc CompactMemTable(HeartBeat) returns (StatusRes){}
     rpc MergeDB(HeartBeat) returns (StatusRes){}
     rpc SplitDB(SplitReq) returns (StatusRes){}
@@ -40,10 +40,7 @@ message SplitReq {
     int32 id = 2;
 }
 
-message InitMap{
-    map<int64, int32> servermap = 1;
-}
-
 message ServerId {
     int32 id = 1;
+    map<int64, int32> servermap = 2;
 }

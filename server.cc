@@ -181,19 +181,20 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
 
     grpc::Status AllotServerId(ServerContext* context, const p2p::HeartBeat* request, p2p::ServerId* reply) {
         reply->set_id(++last_server_id);
+        populate_hash_server_map(reply->mutable_servermap());
         return grpc::Status::OK;
     }
 
-    grpc::Status InitializeNewServer(ServerContext* context, const p2p::HeartBeat* request, p2p::InitMap* reply) {
-        broadcast_new_server_to_all(last_server_id);
-        //Add to server list
+    grpc::Status InitializeNewServer(ServerContext* context, const p2p::HeartBeat* request, p2p::HeartBeat* reply) {
         insert_server_entry(last_server_id);
+        broadcast_new_server_to_all(last_server_id); //broadcast to the new server also
+        //Add to server list
         std::thread hb(heartbeat, last_server_id);
         hb.detach();
         update_ring_id();
         print_ring();
         //heartbeat start
-        populate_hash_server_map(reply->mutable_servermap());
+        
         return grpc::Status::OK;
     }
 
@@ -485,20 +486,12 @@ int main(int argc, char** argv) {
         server_id = idreply.id();
         isMaster = 0;
 
-        p2p::InitMap servermap_reply;
-        ClientContext context_init;
-        std::cout << "Set server id as " << server_id << std::endl;
-        this_node_address = getP2PServerAddr(server_id);
-        std::thread p2p_server(run_p2p_server);
-        p2p_server.detach();
-
-        s = client_stub_[0]->InitializeNewServer(&context_init, hbrequest, &servermap_reply);
         // std::thread watch(watch_time_thread);
         // if(diff > 5) {
         //     std::cout<<"FIND NEW MASTER"<<std::endl;
         //     // init master
         // }
-        server_map = std::map<long,int>(servermap_reply.servermap().begin(),servermap_reply.servermap().end());
+        server_map = std::map<long,int>(idreply.servermap().begin(),idreply.servermap().end());
         std::cout << "servermap initialized" << std::endl;
         update_ring_id();
         p2p::SplitReq splitrequest;
@@ -520,13 +513,14 @@ int main(int argc, char** argv) {
         print_ring();
     } else {
         insert_server_entry(0);
-
-        std::cout << "Set server id as " << server_id << std::endl;
-
-        this_node_address = getP2PServerAddr(server_id);
-        std::thread p2p_server(run_p2p_server);
-        p2p_server.detach();
     }
+
+    std::cout << "Set server id as " << server_id << std::endl;
+    this_node_address = getP2PServerAddr(server_id);
+    std::thread p2p_server(run_p2p_server);
+
+    ClientContext context_init;
+    if(!isMaster) s = client_stub_[0]->InitializeNewServer(&context_init, hbrequest, &hbreply);
 
     cur_node_wifs_address = getWifsServerAddr(server_id);
 
