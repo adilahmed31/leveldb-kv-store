@@ -9,12 +9,12 @@
 
 void tester(char* key) {
     char buf[BLOCK_SIZE + 1];
-    for (int i = 0; i < BLOCK_SIZE; i++) buf[i] = 'Z';
-    int rc = do_put(key, buf);
-    if (rc == -1) std::cout << "PUT FAIL\n";
+    // for (int i = 0; i < BLOCK_SIZE; i++) buf[i] = 'Z';
+    // int rc = do_put(key, buf);
+    // if (rc == -1) std::cout << "PUT FAIL\n";
 
     buf[0] = '\0';
-    rc = do_get(key, buf);
+    int rc = do_get(key, buf);
     if (rc == -1) std::cout << "GET FAIL\n";
 
     buf[BLOCK_SIZE] = '\0';
@@ -28,6 +28,10 @@ int main(int argc, char* argv[]) {
     key = (char*)"400";
     tester(key);
     key = (char*)"4000";
+    tester(key);
+    key = (char*)"40000";
+    tester(key);
+    key = (char*)"400000";
     tester(key);
     return 0;
 }

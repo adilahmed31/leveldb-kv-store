@@ -12,7 +12,7 @@ service PeerToPeer {
     rpc BroadcastServerId(ServerId) returns (HeartBeat){}
     rpc InitializeNewServer(HeartBeat) returns (HeartBeat){}
     rpc CompactMemTable(HeartBeat) returns (StatusRes){}
-    rpc MergeDB(HeartBeat) returns (StatusRes){}
+    rpc MergeDB(ServerId) returns (StatusRes){}
     rpc SplitDB(SplitReq) returns (StatusRes){}
 }
 
