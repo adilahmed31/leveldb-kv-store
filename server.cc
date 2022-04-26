@@ -77,7 +77,6 @@ int last_server_id = 0; //This is to be used only by first server currently.
 int timestamp = 0;
 
 int ring_id = 0;
-int last_ring_id = 0;
 int successor_server_id = 0;
 
 std::string this_node_address;
@@ -105,16 +104,10 @@ int get_dest_server_id(std::string key) {
 
 //Return the successor of a node on the ring.
 int find_successor(int pred_server_id){
-    auto it = server_map.lower_bound(somehashfunction(std::to_string(pred_server_id)));
-    int successor_id;
-    if(it!=server_map.end()){
-        auto it2 = std::next(it,1);
-        successor_id = it2->second;
-    }else
-    {
-        successor_id = server_map.begin()->second;
-    }
-    std::cout<<"Successor ID of server " << pred_server_id << " is: "<<successor_id<<std::endl;
+    int hash_val = somehashfunction(std::to_string(pred_server_id));
+    auto it = server_map.upper_bound(hash_val);
+    int successor_id = (it == server_map.end() ? server_map.begin()->second : it->second);
+    std::cout<<"Successor ID of server " << pred_server_id << " is: " << successor_id << std::endl;
     return successor_id;
 }
 
@@ -168,21 +161,12 @@ void populate_hash_server_map(google::protobuf::Map<long, int>* map) {
 
 // Server IDs don't correspond to ring positions. Update ring position to a separate variable
 void update_ring_id(){
-    for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
-        if(it->second == server_id){
-            ring_id = distance(server_map.begin(), server_map.find(it->first));
-            auto it2 = std::next(it,1);
-            if(it2 != server_map.end()){
-                successor_server_id = it2->second;
-            }
-            else{
-                successor_server_id = server_map.begin()->second;
-            }
-        }
-        else if (it->second == last_server_id){
-            last_ring_id = distance(server_map.begin(), server_map.find(it->first));
-        }
-    }
+    //Find Ring ID and successor ID
+    int hash_val = somehashfunction(std::to_string(server_id));
+    auto it = server_map.find(hash_val);
+    int ring_id = distance(server_map.begin(), it);
+    auto it2 = std::next(it,1);
+    int successor_server_id = (it2 == server_map.end() ? server_map.begin()->second : it2->second);
     std::cout <<" Ring ID of this server : " <<ring_id <<" Successor server ID: "<<successor_server_id<<std::endl;
 }
 
