@@ -14,13 +14,13 @@ int init() {
     options.wifsclient = new WifsClient(grpc::CreateChannel(getWifsServerAddr(0), grpc::InsecureChannelCredentials()));
 }
 
-int do_get(int key, char* val) {
+int do_get(char* key, char* val) {
  
     int rc = options.wifsclient->wifs_GET(key, val);
     return rc;
 }
 
-int do_put(int key, char* val) {
+int do_put(char* key, char* val) {
 
     int rc = options.wifsclient->wifs_PUT(key, val);
     return rc;

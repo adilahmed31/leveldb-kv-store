@@ -33,22 +33,23 @@ class WifsClient {
         }
     }
 
-    int wifs_GET(int key, char val[BLOCK_SIZE]) {
+    int wifs_GET(char* key, char val[BLOCK_SIZE]) {
+
         ClientContext context;
         GetReq request;
         GetRes reply;
-        request.set_key(key);
+        request.set_key(std::string(key));
         Status status = stub_->wifs_GET(&context, request, &reply);
         print_map(reply.hash_server_map());
         strncpy(val, reply.val().c_str(), BLOCK_SIZE);
         return status.ok() ? 0 : -1;
     }
 
-    int wifs_PUT(int key, char val[BLOCK_SIZE]) {
+    int wifs_PUT(char* key, char val[BLOCK_SIZE]) {
         ClientContext context;
         PutReq request;
         PutRes reply;
-        request.set_key(key);
+        request.set_key(std::string(key));
         request.set_val(std::string(val));
 
         Status status = stub_->wifs_PUT(&context, request, &reply);

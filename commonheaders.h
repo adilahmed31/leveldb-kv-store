@@ -40,7 +40,8 @@ std::string getWifsServerAddr(int machine_id){
 }
 
 //Consistent hashing - modify/replace hash function if required
-unsigned int somehashfunction(unsigned int x) {
+unsigned int somehashfunction(std::string s) {
+    std::size_t x = std::hash<std::string>{}(s);
     x = x+8349;
     x = ((x >> 16) ^ x) * 0x45d9f3b;
     x = ((x >> 16) ^ x) * 0x45d9f3b;
@@ -55,7 +56,7 @@ unsigned int somehashfunction(unsigned int x) {
 std::map<long,int> server_map;
 
 void insert_server_entry(int server_id){
-  server_map[somehashfunction(server_id)] = server_id;
+  server_map[somehashfunction(std::to_string(server_id))] = server_id;
 }
 
 void print_ring(){
