@@ -172,7 +172,7 @@ void update_ring_id(){
     auto it = getServerIteratorInMap(server_id);
     int ring_id = distance(server_map.begin(), it);
     auto it2 = std::next(it,1);
-    int successor_server_id = (it2 == server_map.end() ? server_map.begin()->second : it2->second);
+    successor_server_id = (it2 == server_map.end() ? server_map.begin()->second : it2->second);
     std::cout <<" Ring ID of this server : " <<ring_id <<" Successor server ID: "<<successor_server_id<<std::endl;
 }
 
@@ -541,20 +541,17 @@ int main(int argc, char** argv) {
         //Contact successor and transfer keys belonging to current node
         p2p::SplitReq splitrequest;
         p2p::StatusRes splitreply;
-        for (auto it = server_map.begin(); it != server_map.end(); it++){
-            if(server_id == it->second){
-                splitrequest.set_range_end(it->first);
-            }
-        }
+
+        splitrequest.set_range_end(somehashfunction(std::to_string(server_id)));
         ClientContext context_split;
-        if (successor_server_id != server_id){
             if(client_stub_[successor_server_id] == NULL) connect_with_peer(successor_server_id);
             splitrequest.set_id(server_id);
             s = client_stub_[successor_server_id]->SplitDB(&context_split, splitrequest, &splitreply);
             if (splitreply.status() == p2p::StatusRes_Status_FAIL){
                 std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
             }
-        }
+
+
         print_ring();
     } else {
         insert_server_entry(0);
@@ -566,7 +563,7 @@ int main(int argc, char** argv) {
 
     ClientContext context_init;
     if(!isMaster) s = client_stub_[0]->InitializeNewServer(&context_init, hbrequest, &hbreply);
-
+               
     cur_node_wifs_address = getWifsServerAddr(server_id);
 
     // Create server path if it doesn't exist
