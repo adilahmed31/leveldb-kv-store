@@ -65,7 +65,7 @@ void insert_server_entry(int server_id){
 
 void print_ring(){
     for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
-        std::cout<<it->first<<" - "<<it->second<<"\n";
+        std::cout<<it->first<<" - "<<it->second<<std::endl;
     }
 }
 

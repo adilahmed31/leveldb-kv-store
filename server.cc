@@ -13,8 +13,11 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <time.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <csignal>
+#include <chrono>
+#include <condition_variable>
 
 #include <fstream>
 #include <iostream>
@@ -69,14 +72,19 @@ char root_path[MAX_PATH_LENGTH];
 
 int server_id = 0;
 int last_server_id = 0; //This is to be used only by first server currently.
+int timestamp = 0;
 
 std::string this_node_address;
 std::string cur_node_wifs_address;
 
 std::vector<std::unique_ptr<PeerToPeer::Stub>> client_stub_(MAX_NUM_SERVERS);
 
+struct timespec* ts;
+std::condition_variable cv;
+
 leveldb::DB* db;
 void heartbeat(int server_id);
+void heartbeat_new();
 
 void broadcast_new_server_to_all(int new_server_id);
 
@@ -87,6 +95,19 @@ int get_dest_server_id(int key) {
     auto it = server_map.lower_bound(key_hash);
     if(it==server_map.end()) it = server_map.begin();
     return it->second; //this should never happen 
+}
+
+void get_time(struct timespec* ts)
+{
+    clock_gettime(CLOCK_MONOTONIC, ts);
+}
+
+double get_time_diff(struct timespec* before, struct timespec* after)
+{
+    double delta_s = after->tv_sec - before->tv_sec;
+    double delta_ns = after->tv_nsec - before->tv_nsec;
+
+    return delta_s + (delta_ns * 1e-9);
 }
 
 /* 
@@ -127,6 +148,7 @@ void populate_hash_server_map(google::protobuf::Map<long, int>* map) {
 class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     grpc::Status Ping(ServerContext* context, const p2p::HeartBeat* request, p2p::HeartBeat* reply) {
         std::cout << "Ping!" <<std::endl;
+        // get_time(ts);
         return grpc::Status::OK;
     }
 
@@ -139,7 +161,10 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         broadcast_new_server_to_all(last_server_id);
         //Add to server list
         insert_server_entry(last_server_id);
-        std::thread heartbeat(last_server_id);
+        // std::cout<<"Going to heartbeat \n";
+        std::thread hb(heartbeat, last_server_id);
+        hb.detach();
+        
         print_ring();
         //heartbeat start
         populate_hash_server_map(reply->mutable_servermap());
@@ -267,11 +292,56 @@ void run_p2p_server() {
 }
 
 void heartbeat(int server_id){
-    connect_with_peer(server_id);
-    ClientContext context;
-    p2p::HeartBeat hbrequest, hbreply;
-
+    while(true) {
+        connect_with_peer(server_id);
+        ClientContext context;
+        p2p::HeartBeat hbrequest, hbreply;
+        grpc::Status s = client_stub_[server_id]->Ping(&context, hbrequest, &hbreply);
+        if(s.ok()) {
+            std::cout<<server_id<<"'s HEART IS BEATING"<<std::endl;
+        } else {
+            std::cout<<"HEARTBEAT FAILED\n";
+            // Failed => server is down, so figure out how to distribute keys of this server to successor
+        }
+    
+        // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
+    }
 }
+
+void heartbeat_new() {
+    while(true) {
+        for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
+            int server_id = it->second;
+            if (server_id > 0){ //don't broadcast to self (server 0)
+                // if(client_stub_[it->second] == NULL) connect_with_peer(it->second);
+                std::cout<<"HEARTBEAT to "<<server_id<<std::endl;
+                connect_with_peer(server_id);
+                ClientContext context;
+                p2p::HeartBeat hbrequest, hbreply;
+                grpc::Status s = client_stub_[it->second]->Ping(&context, hbrequest, &hbreply);
+                if(s.ok()) {
+                    std::cout<<server_id<<"'s HEART IS BEATING"<<std::endl;
+                } else {
+                    std::cout<<server_id<<"'s HEARTBEAT FAILED\n";
+                    // Failed => server is down, so figure out how to distribute keys of this server to successor
+                }
+            }
+        }
+       // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
+    }
+    
+}
+
+// double diff = 0;
+// void watch_time_thread() {
+//     while(true) {
+//         struct timespec* now;
+//         diff = get_time_diff(ts, now);
+//         std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
+//     }
+// }
 
 int main(int argc, char** argv) {
 
@@ -294,29 +364,44 @@ int main(int argc, char** argv) {
     connect_with_peer(0);
     ClientContext context;
     p2p::HeartBeat hbrequest, hbreply;
+    // TODO: not sure if needed, maybe useful later?
+    int isMaster = 1;
 
     grpc::Status s = client_stub_[0]->Ping(&context, hbrequest, &hbreply);
     if(s.ok()) {
         p2p::ServerId idreply;
-        p2p::InitMap servermap_reply;
         ClientContext context;
         s = client_stub_[0]->AllotServerId(&context, hbrequest, &idreply);
         server_id = idreply.id();
+        isMaster = 0;
+
+        p2p::InitMap servermap_reply;
         ClientContext context_init;
+        std::cout << "Set server id as " << server_id << std::endl;
+        this_node_address = getP2PServerAddr(server_id);
+        std::thread p2p_server(run_p2p_server);
+        p2p_server.detach();
+
         s = client_stub_[0]->InitializeNewServer(&context_init, hbrequest, &servermap_reply);
+        // std::thread watch(watch_time_thread);
+        // if(diff > 5) {
+        //     std::cout<<"FIND NEW MASTER"<<std::endl;
+        //     // init master
+        // }
         server_map = std::map<long,int>(servermap_reply.servermap().begin(),servermap_reply.servermap().end());
         std::cout << "servermap initialized" << std::endl;
         print_ring();
-    }
-    else{
-        //Declared self as first server (server_id = 0 already)
-        //Initiate server list 
+
+    } else {
         insert_server_entry(0);
+
+        std::cout << "Set server id as " << server_id << std::endl;
+
+        this_node_address = getP2PServerAddr(server_id);
+        std::thread p2p_server(run_p2p_server);
+        p2p_server.detach();
     }
 
-    std::cout << "Set server id as " << server_id << std::endl;
-
-    this_node_address = getP2PServerAddr(server_id);
     cur_node_wifs_address = getWifsServerAddr(server_id);
 
     // Create server path if it doesn't exist
@@ -336,9 +421,6 @@ int main(int argc, char** argv) {
     leveldb::Status status = leveldb::DB::Open(options, getServerDir(server_id).c_str(), &db);
     assert(status.ok());
 
-    // init_connection_with_peers();
-    std::thread p2p_server(run_p2p_server);
-    run_wifs_server();
-
+    run_wifs_server();   
     return 0;
 }
