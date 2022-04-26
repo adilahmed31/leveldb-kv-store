@@ -19,6 +19,7 @@
 #include <chrono>
 #include <ctime>
 #include <condition_variable>
+#include <typeinfo>
 
 #include <fstream>
 #include <iostream>
@@ -89,10 +90,16 @@ auto then = std::chrono::system_clock::now();
 std::condition_variable cv;
 
 leveldb::DB* db;
-void heartbeat(int server_id);
+void heartbeat(int heartbeat_server_id);
 void heartbeat_new();
 
 void broadcast_new_server_to_all(int new_server_id, int mode);
+
+auto getServerIteratorInMap(int target_server_id) -> std::map<long,int>::iterator{
+    int hash_val = somehashfunction(std::to_string(target_server_id));
+    auto it = server_map.find(hash_val);
+    return it;
+}
 
 int get_dest_server_id(std::string key) {
     // compute the hash for the given key, find the corresponding server and return the id.
@@ -141,11 +148,10 @@ void populate_hash_server_map(google::protobuf::Map<long, int>* map) {
 // Server IDs don't correspond to ring positions. Update ring position to a separate variable
 void update_ring_id(){
     //Find Ring ID and successor ID
-    int hash_val = somehashfunction(std::to_string(server_id));
-    auto it = server_map.find(hash_val);
+    auto it = getServerIteratorInMap(server_id);
     int ring_id = distance(server_map.begin(), it);
     auto it2 = std::next(it,1);
-    int successor_server_id = (it2 == server_map.end() ? server_map.begin()->second : it2->second);
+    successor_server_id = (it2 == server_map.end() ? server_map.begin()->second : it2->second);
     std::cout <<" Ring ID of this server : " <<ring_id <<" Successor server ID: "<<successor_server_id<<std::endl;
 }
 
@@ -274,13 +280,10 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
             reply->set_status(p2p::StatusRes_Status_FAIL);
             return grpc::Status::OK;
         }
-        int this_range_end;
+        
         //find range end for current server
-         for (auto it = server_map.begin(); it != server_map.end(); it++){
-            if(server_id == it->second){
-                this_range_end = it->first;
-            }
-        }
+        int this_range_end = getServerIteratorInMap(server_id)->first;
+        
         //Iterate over old DB and create batches for operations
         for(iter->SeekToFirst(); iter->Valid(); iter->Next()){
             if ((somehashfunction(iter->key().ToString()) <= request->range_end()) && (somehashfunction(iter->key().ToString()) > this_range_end)){
@@ -375,7 +378,7 @@ class WifsServiceImplementation final : public WIFS::Service {
 //mode 0 => insert server_id (node join), mode 1 => delete server_id (node exit)
 void broadcast_new_server_to_all(int new_server_id, int mode){
   for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
-    if (it->second > 0){ //don't broadcast to self (server 0)
+    if (it->second > 0){ //don't broadcast to self (server 0) //TODO: Change this to Master IP / ID
         if(client_stub_[it->second] == NULL) connect_with_peer(it->second);
         
         ClientContext context;
@@ -418,50 +421,53 @@ void run_p2p_server() {
 }
 
 void heartbeat(int heartbeat_server_id){
-    if (client_stub_[heartbeat_server_id] == NULL) connect_with_peer(heartbeat_server_id);
 
-    while(true) {
+    // sleep here
+    if (client_stub_[heartbeat_server_id] == NULL) connect_with_peer(heartbeat_server_id);
+    int retry_count = 0;
+    while(retry_count < 5) {
         ClientContext context;
         p2p::HeartBeat hbrequest, hbreply;
         grpc::Status s = client_stub_[heartbeat_server_id]->Ping(&context, hbrequest, &hbreply);
         if(s.ok()) {
+            retry_count = 0;
             std::cout<<heartbeat_server_id<<"'s HEART IS BEATING"<<std::endl;
-        } else { //TODO: Do a few retries before giving up on server
+        } else { 
             std::cout<<heartbeat_server_id<<"'s HEARTBEAT FAILED\n";
-            int failed_server_successor_id = find_successor(heartbeat_server_id);
-            
-            
-            //if master is the successor of the failed node, perform the merge locally without an RPC call
-            if(server_id == failed_server_successor_id){
-                std::cout << "Master itself is the successor of "<< heartbeat_server_id <<std::endl;
-                merge_ldb(heartbeat_server_id);
-            }
-            //send a merge RPC to the successor of the failed node
-            else{
-                if (client_stub_[failed_server_successor_id] == NULL) connect_with_peer(failed_server_successor_id);
-
-                std::cout << "failed_server_successor_id: " << failed_server_successor_id << std::endl;
-
-                ClientContext context_merge;
-                p2p::ServerId mergerequest;
-                p2p::StatusRes mergereply;
-                mergerequest.set_id(heartbeat_server_id);
-                s = client_stub_[failed_server_successor_id]->MergeDB(&context_merge, mergerequest, &mergereply);
-                std::cout << "s.ok()? " << s.ok() << " mergereply.status()" << mergereply.status() << std::endl;
-                if ((!s.ok()) || (mergereply.status() == p2p::StatusRes_Status_FAIL)){
-                    std::cout << "Successor could not merge" <<std::endl; //TODO (Handle failure)
-                }
-            }
-            remove_server_entry(heartbeat_server_id);
-
-            //Update server maps of all servers to remove entry
-            broadcast_new_server_to_all(heartbeat_server_id, 1); //mode 1 is for deleting entries
-            return;
-            }
-            // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
+            retry_count++;
         }
-        
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+    
+    int failed_server_successor_id = find_successor(heartbeat_server_id);
+                    
+    //if master is the successor of the failed node, perform the merge locally without an RPC call
+    if(server_id == failed_server_successor_id){
+        std::cout << "Master itself is the successor of "<< heartbeat_server_id <<std::endl;
+        merge_ldb(heartbeat_server_id);
+    }
+    //send a merge RPC to the successor of the failed node
+    else{
+        if (client_stub_[failed_server_successor_id] == NULL) connect_with_peer(failed_server_successor_id);
+
+        std::cout << "failed_server_successor_id: " << failed_server_successor_id << std::endl;
+
+        ClientContext context_merge;
+        p2p::ServerId mergerequest;
+        p2p::StatusRes mergereply;
+        mergerequest.set_id(heartbeat_server_id);
+        grpc::Status s = client_stub_[failed_server_successor_id]->MergeDB(&context_merge, mergerequest, &mergereply);
+        std::cout << "s.ok()? " << s.ok() << " mergereply.status()" << mergereply.status() << std::endl;
+        if ((!s.ok()) || (mergereply.status() == p2p::StatusRes_Status_FAIL)){
+            std::cout << "Successor could not merge" <<std::endl; //TODO (Handle failure)
+        }
+    }
+    remove_server_entry(heartbeat_server_id);
+
+    //Update server maps of all servers to remove entry
+    broadcast_new_server_to_all(heartbeat_server_id, 1); //mode 1 is for deleting entries
+    return;
+            // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry  
 }
 
 void watch_for_master() {
@@ -523,20 +529,17 @@ int main(int argc, char** argv) {
         //Contact successor and transfer keys belonging to current node
         p2p::SplitReq splitrequest;
         p2p::StatusRes splitreply;
-        for (auto it = server_map.begin(); it != server_map.end(); it++){
-            if(server_id == it->second){
-                splitrequest.set_range_end(it->first);
-            }
-        }
+
+        splitrequest.set_range_end(somehashfunction(std::to_string(server_id)));
         ClientContext context_split;
-        if (successor_server_id != server_id){
             if(client_stub_[successor_server_id] == NULL) connect_with_peer(successor_server_id);
             splitrequest.set_id(server_id);
             s = client_stub_[successor_server_id]->SplitDB(&context_split, splitrequest, &splitreply);
             if (splitreply.status() == p2p::StatusRes_Status_FAIL){
                 std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
             }
-        }
+
+
         print_ring();
     } else {
         insert_server_entry(0);
@@ -551,8 +554,7 @@ int main(int argc, char** argv) {
         s = client_stub_[0]->InitializeNewServer(&context_init, hbrequest, &hbreply);
         std::thread watch(watch_for_master);
         watch.detach();
-    } 
-
+    }
     cur_node_wifs_address = getWifsServerAddr(server_id);
 
     // Create server path if it doesn't exist
