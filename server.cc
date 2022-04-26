@@ -92,7 +92,7 @@ leveldb::DB* db;
 void heartbeat(int server_id);
 void heartbeat_new();
 
-void broadcast_new_server_to_all(int new_server_id);
+void broadcast_new_server_to_all(int new_server_id, int mode);
 
 int get_dest_server_id(std::string key) {
     // compute the hash for the given key, find the corresponding server and return the id.
@@ -171,11 +171,42 @@ void update_ring_id(){
     std::cout <<" Ring ID of this server : " <<ring_id <<" Successor server ID: "<<successor_server_id<<std::endl;
 }
 
+//merges DB of server ID provided as an argument into the current node's DB
+int merge_ldb(int failed_server_id){
+    std::cout << "Merging DB of " <<failed_server_id << "into DB of node "<< server_id <<std::endl;
+    leveldb::Options options;
+    leveldb::DB* db_merge;
+    options.create_if_missing = false; //This should never be missing
+    leveldb::Status s = leveldb::DB::Open(options, getServerDir(failed_server_id), &db_merge);
+    if(!s.ok()){
+        std::cout << "Error opening DB of failed node" <<std::endl;
+        return -1;
+    }
+    leveldb::Iterator* iter = db_merge->NewIterator(leveldb::ReadOptions());
+
+    leveldb::WriteOptions w;
+    leveldb::WriteBatch writebatch;
+    leveldb::WriteBatch deletebatch;
+
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    //write to batch
+        writebatch.Put(iter->key(), iter->value());
+        deletebatch.Delete(iter->key());
+    }
+    db->Write(w,&writebatch);
+    std::cout << "Wrote entries from DB of server " <<failed_server_id<<std::endl;
+    db_merge->Write(w,&deletebatch);
+    std::cout << "Deleted all entries from DB of server "<<failed_server_id<<std::endl;
+    delete db_merge;
+    return 0;
+}
+
+
 
 class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     grpc::Status Ping(ServerContext* context, const p2p::HeartBeat* request, p2p::HeartBeat* reply) {
-        std::cout << "Ping!" <<std::endl;
-        // get_time(ts);
+        //std::cout << "Ping!" <<std::endl;
+        //get_time(ts);
         return grpc::Status::OK;
     }
 
@@ -186,8 +217,8 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     }
 
     grpc::Status InitializeNewServer(ServerContext* context, const p2p::HeartBeat* request, p2p::HeartBeat* reply) {
-        insert_server_entry(last_server_id);
-        broadcast_new_server_to_all(last_server_id); //broadcast to the new server also
+        insert_server_entry(last_server_id);//TODO: take server id from request
+        broadcast_new_server_to_all(last_server_id, 0); //broadcast to the new server also, mode 0 for adding server ID
         //Add to server list
         std::thread hb(heartbeat, last_server_id);
         hb.detach();
@@ -201,9 +232,17 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     grpc::Status BroadcastServerId(ServerContext* context, const p2p::ServerId* request, p2p::HeartBeat* reply) {
         //Add new serverId to server list
         last_server_id = request->id();
-        insert_server_entry(last_server_id);
+        if(request->action() == p2p::ServerId_Action_INSERT){
+            insert_server_entry(last_server_id);
+            std::cout << "new server added: " << request->id() << std::endl;
+
+        }
+        else{
+            remove_server_entry(last_server_id);
+            std::cout << "server removed: " << request->id() << std::endl;
+
+        }
         update_ring_id();
-        std::cout << "new server added: " << request->id() << std::endl;
         print_ring();
         return grpc::Status::OK;
     }
@@ -283,32 +322,15 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     //The batched write is applied to the successor's DB
     grpc::Status MergeDB(ServerContext* context, const p2p::ServerId* request, p2p::StatusRes* reply){
         std::cout << "Master asked this server to merge with Server "<< request->id() <<std::endl;
-        leveldb::Options options;
-        leveldb::DB* db_merge;
-        options.create_if_missing = false; //This should never be missing
-
-        leveldb::Status s = leveldb::DB::Open(options, getServerDir(request->id()), &db_merge);
-        if(!s.ok()){
+        int rc = merge_ldb(request->id());
+        if(rc < 1){
             std::cout << "Error opening DB of failed node" <<std::endl;
             reply->set_status(p2p::StatusRes_Status_FAIL);
             return grpc::Status::OK;
         }
-        leveldb::Iterator* iter = db_merge->NewIterator(leveldb::ReadOptions());
-
-        leveldb::WriteOptions w;
-        leveldb::WriteBatch batch;
-
-        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-        //write to batch
-            batch.Put(iter->key(), iter->value());
-        }
-        db->Write(w,&batch);
-        delete db_merge; //close the failed server DB
         reply->set_status(p2p::StatusRes_Status_PASS);
         return grpc::Status::OK;
     }
-
-
 };
 
 class WifsServiceImplementation final : public WIFS::Service {
@@ -370,8 +392,9 @@ class WifsServiceImplementation final : public WIFS::Service {
     }
 };
 
-
-void broadcast_new_server_to_all(int new_server_id){
+//Call this function to broadcast any change in the server mappings. 
+//mode = 0 => insert server_id (node join), mode = 1 => remove server_id (node exit)
+void broadcast_new_server_to_all(int new_server_id, int mode){
   for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
     if (it->second > 0){ //don't broadcast to self (server 0)
         if(client_stub_[it->second] == NULL) connect_with_peer(it->second);
@@ -380,6 +403,12 @@ void broadcast_new_server_to_all(int new_server_id){
         p2p::HeartBeat hbreply;
         p2p::ServerId idrequest;
         idrequest.set_id(new_server_id);
+        if(mode == 0){
+            idrequest.set_action(p2p::ServerId_Action_INSERT);
+        }
+        else{
+            idrequest.set_action(p2p::ServerId_Action_DELETE);
+        }
         grpc::Status s = client_stub_[it->second]->BroadcastServerId(&context, idrequest, &hbreply);
     }
   }
@@ -409,47 +438,117 @@ void run_p2p_server() {
     server->Wait();
 }
 
-void heartbeat(int server_id){
+void heartbeat(int heartbeat_server_id){
+    if (client_stub_[heartbeat_server_id] == NULL) connect_with_peer(heartbeat_server_id);
+
     while(true) {
-        connect_with_peer(server_id);
         ClientContext context;
         p2p::HeartBeat hbrequest, hbreply;
-        grpc::Status s = client_stub_[server_id]->Ping(&context, hbrequest, &hbreply);
+        grpc::Status s = client_stub_[heartbeat_server_id]->Ping(&context, hbrequest, &hbreply);
         if(s.ok()) {
-            std::cout<<server_id<<"'s HEART IS BEATING"<<std::endl;
-        } else {
-            std::cout<<"HEARTBEAT FAILED\n";
+            std::cout<<heartbeat_server_id<<"'s HEART IS BEATING"<<std::endl;
+        } else { //TODO: Do a few retries before giving up on server
+            std::cout<<heartbeat_server_id<<"'s HEARTBEAT FAILED\n";
+            ClientContext context_merge;
+            p2p::HeartBeat mergerequest;
+            p2p::StatusRes mergereply;
+
+            int failed_server_successor_id;
+            auto it = server_map.lower_bound(somehashfunction(std::to_string(heartbeat_server_id)));
+            if(it!=server_map.end()){
+                auto it2 = std::next(it,1);
+                failed_server_successor_id = it2->second;
+            }
+            else{
+                failed_server_successor_id = server_map.begin()->second;
+            }
+            std::cout<<"Successor ID of failed server is: "<<failed_server_successor_id<<std::endl;
+            
+                //if master is the successor of the failed node
+                //TODO:: This code is duplicated from MergeDB. Encapsulate in function and call in both places
+                if(server_id == failed_server_successor_id){
+                    std::cout << "Master itself is the successor of "<< heartbeat_server_id <<std::endl;
+                    merge_ldb(heartbeat_server_id);
+                }
+                else{
+
+                    if(client_stub_[failed_server_successor_id] == NULL) connect_with_peer(failed_server_successor_id);
+                    mergerequest.set_state(p2p::HeartBeat_State_INIT);
+                    s = client_stub_[failed_server_successor_id]->MergeDB(&context_merge, mergerequest, &mergereply);
+                    
+                    if ((!s.ok()) || (mergereply.status() == p2p::StatusRes_Status_FAIL)){
+                        std::cout << "Successor could not merge" <<std::endl; //TODO (Handle failure)
+                    }
+                }
+            remove_server_entry(heartbeat_server_id);
+
+            //Update server maps of all servers to remove entry
+            broadcast_new_server_to_all(heartbeat_server_id, 1); //mode 1 is for deleting entries
+            return;
             // Failed => server is down, so figure out how to distribute keys of this server to successor
+            }
+            // Failed => server is down, so figure out how to distribute keys of this server to successor
+            // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
         }
-    
-        // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
-    }
+        
 }
+
 
 void heartbeat_new() {
     while(true) {
         for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
-            int server_id = it->second;
-            if (server_id > 0){ //don't broadcast to self (server 0)
+            int heartbeat_server_id = it->second;
+            if (heartbeat_server_id > 0){ //don't broadcast to self (server 0)
                 // if(client_stub_[it->second] == NULL) connect_with_peer(it->second);
-                std::cout<<"HEARTBEAT to "<<server_id<<std::endl;
-                connect_with_peer(server_id);
+                std::cout << "HEARTBEAT to " << heartbeat_server_id <<std::endl;
+                if (client_stub_[heartbeat_server_id] == NULL) connect_with_peer(heartbeat_server_id);
+                connect_with_peer(heartbeat_server_id);
                 ClientContext context;
                 p2p::HeartBeat hbrequest, hbreply;
-                grpc::Status s = client_stub_[it->second]->Ping(&context, hbrequest, &hbreply);
+                grpc::Status s = client_stub_[heartbeat_server_id]->Ping(&context, hbrequest, &hbreply);
                 if(s.ok()) {
-                    std::cout<<server_id<<"'s HEART IS BEATING"<<std::endl;
-                } else {
-                    std::cout<<server_id<<"'s HEARTBEAT FAILED\n";
-                    // Failed => server is down, so figure out how to distribute keys of this server to successor
+                    std::cout<<heartbeat_server_id<<"'s HEART IS BEATING"<<std::endl;
+                } else
+                {
+                    std::cout<<heartbeat_server_id<<"'s HEARTBEAT FAILED\n";
+                    ClientContext context_merge;
+                    p2p::HeartBeat mergerequest;
+                    p2p::StatusRes mergereply;
+                    int failed_server_successor_id;
+                    if(it!=server_map.end()){
+                        auto it2 = std::next(it,1);
+                        failed_server_successor_id = it2->second;
+                    }
+                    else{
+                        failed_server_successor_id = server_map.begin()->second;
+                    }
+                    std::cout<<"Successor ID of failed server is: "<<failed_server_successor_id<<std::endl;
+                
+                    //if master is the successor of the failed node
+                    //TODO:: This code is duplicated from MergeDB. Encapsulate in function and call in both places
+                    if(server_id == failed_server_successor_id){
+                        std::cout << "Master itself is the successor of "<< heartbeat_server_id <<std::endl;
+                        merge_ldb(heartbeat_server_id);
+                    }
+                    else{
+                        if(client_stub_[failed_server_successor_id] == NULL) connect_with_peer(failed_server_successor_id);
+                        mergerequest.set_state(p2p::HeartBeat_State_INIT);
+                        grpc::Status s = client_stub_[failed_server_successor_id]->MergeDB(&context_merge, mergerequest, &mergereply);
+                        if ((!s.ok()) || (mergereply.status() == p2p::StatusRes_Status_FAIL)){
+                            std::cout << "Successor could not merge" <<std::endl; //TODO (Handle failure)
+                        }
+                    }
+                    remove_server_entry(heartbeat_server_id);
+
+                    //Update server maps of all servers to remove entry
+                    broadcast_new_server_to_all(heartbeat_server_id, 1); //mode 1 is for deleteing entries
                 }
             }
         }
-       // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
     }
-    
+       // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry
+    std::this_thread::sleep_for(std::chrono::milliseconds(10000)); 
 }
 
 // double diff = 0;

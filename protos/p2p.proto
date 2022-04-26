@@ -41,6 +41,11 @@ message SplitReq {
 }
 
 message ServerId {
-    int32 id = 1;
-    map<int64, int32> servermap = 2;
+    enum Action{
+        INSERT = 0;
+        DELETE = 1;
+    }
+    Action action = 1;
+    int32 id = 2;
+    map<int64, int32> servermap = 3;
 }

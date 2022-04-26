@@ -61,6 +61,10 @@ void insert_server_entry(int server_id){
   server_map[somehashfunction(std::to_string(server_id))] = server_id;
 }
 
+void remove_server_entry(int server_id){
+    server_map.erase(somehashfunction(std::to_string(server_id)));
+}
+
 void print_ring(){
     for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
         std::cout<<it->first<<" - "<<it->second<<std::endl;
