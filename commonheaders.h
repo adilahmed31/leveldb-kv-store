@@ -17,7 +17,9 @@
 #define MAX_PATH_LENGTH 1000
 #define HEARTBEAT_TIMER 1000
 #define RINGLENGTH 255
-#define MAX_NUM_SERVERS 100 //limiting max servers to use static array for client_stub - can be depreciated if client_stub need not be reused
+
+//limiting max servers to use static array for client_stub - can be depreciated if client_stub need not be reused
+#define MAX_NUM_SERVERS 100 
 
 int read_index = 0;
 int primary_index = 0;
@@ -61,7 +63,7 @@ void insert_server_entry(int server_id){
 
 void print_ring(){
     for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
-        std::cout<<it->first<<" - "<<it->second<<"\n";
+        std::cout<<it->first<<" - "<<it->second<<std::endl;
     }
 }
 
