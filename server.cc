@@ -399,7 +399,7 @@ class WifsServiceImplementation final : public WIFS::Service {
 //mode 0 => insert server_id (node join), mode 1 => delete server_id (node exit)
 void broadcast_new_server_to_all(int new_server_id, int mode){
   for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
-    if (it->second > 0){ //don't broadcast to self (server 0)
+    if (it->second > 0){ //don't broadcast to self (server 0) //TODO: Change this to Master IP / ID
         if(client_stub_[it->second] == NULL) connect_with_peer(it->second);
         
         ClientContext context;
@@ -442,50 +442,53 @@ void run_p2p_server() {
 }
 
 void heartbeat(int heartbeat_server_id){
-    if (client_stub_[heartbeat_server_id] == NULL) connect_with_peer(heartbeat_server_id);
 
-    while(true) {
+    // sleep here
+    if (client_stub_[heartbeat_server_id] == NULL) connect_with_peer(heartbeat_server_id);
+    int retry_count = 0;
+    while(retry_count < 5) {
         ClientContext context;
         p2p::HeartBeat hbrequest, hbreply;
         grpc::Status s = client_stub_[heartbeat_server_id]->Ping(&context, hbrequest, &hbreply);
         if(s.ok()) {
+            retry_count = 0;
             std::cout<<heartbeat_server_id<<"'s HEART IS BEATING"<<std::endl;
-        } else { //TODO: Do a few retries before giving up on server
+        } else { 
             std::cout<<heartbeat_server_id<<"'s HEARTBEAT FAILED\n";
-            int failed_server_successor_id = find_successor(heartbeat_server_id);
-            
-            
-            //if master is the successor of the failed node, perform the merge locally without an RPC call
-            if(server_id == failed_server_successor_id){
-                std::cout << "Master itself is the successor of "<< heartbeat_server_id <<std::endl;
-                merge_ldb(heartbeat_server_id);
-            }
-            //send a merge RPC to the successor of the failed node
-            else{
-                if (client_stub_[failed_server_successor_id] == NULL) connect_with_peer(failed_server_successor_id);
-
-                std::cout << "failed_server_successor_id: " << failed_server_successor_id << std::endl;
-
-                ClientContext context_merge;
-                p2p::ServerId mergerequest;
-                p2p::StatusRes mergereply;
-                mergerequest.set_id(heartbeat_server_id);
-                s = client_stub_[failed_server_successor_id]->MergeDB(&context_merge, mergerequest, &mergereply);
-                std::cout << "s.ok()? " << s.ok() << " mergereply.status()" << mergereply.status() << std::endl;
-                if ((!s.ok()) || (mergereply.status() == p2p::StatusRes_Status_FAIL)){
-                    std::cout << "Successor could not merge" <<std::endl; //TODO (Handle failure)
-                }
-            }
-            remove_server_entry(heartbeat_server_id);
-
-            //Update server maps of all servers to remove entry
-            broadcast_new_server_to_all(heartbeat_server_id, 1); //mode 1 is for deleting entries
-            return;
-            }
-            // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
+            retry_count++;
         }
-        
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+    
+    int failed_server_successor_id = find_successor(heartbeat_server_id);
+                    
+    //if master is the successor of the failed node, perform the merge locally without an RPC call
+    if(server_id == failed_server_successor_id){
+        std::cout << "Master itself is the successor of "<< heartbeat_server_id <<std::endl;
+        merge_ldb(heartbeat_server_id);
+    }
+    //send a merge RPC to the successor of the failed node
+    else{
+        if (client_stub_[failed_server_successor_id] == NULL) connect_with_peer(failed_server_successor_id);
+
+        std::cout << "failed_server_successor_id: " << failed_server_successor_id << std::endl;
+
+        ClientContext context_merge;
+        p2p::ServerId mergerequest;
+        p2p::StatusRes mergereply;
+        mergerequest.set_id(heartbeat_server_id);
+        grpc::Status s = client_stub_[failed_server_successor_id]->MergeDB(&context_merge, mergerequest, &mergereply);
+        std::cout << "s.ok()? " << s.ok() << " mergereply.status()" << mergereply.status() << std::endl;
+        if ((!s.ok()) || (mergereply.status() == p2p::StatusRes_Status_FAIL)){
+            std::cout << "Successor could not merge" <<std::endl; //TODO (Handle failure)
+        }
+    }
+    remove_server_entry(heartbeat_server_id);
+
+    //Update server maps of all servers to remove entry
+    broadcast_new_server_to_all(heartbeat_server_id, 1); //mode 1 is for deleting entries
+    return;
+            // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry  
 }
 
 
