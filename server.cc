@@ -220,12 +220,10 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         if(request->action() == p2p::ServerId_Action_INSERT){
             insert_server_entry(last_server_id);
             std::cout << "new server added: " << request->id() << std::endl;
-
         }
         else{
             remove_server_entry(last_server_id);
             std::cout << "server removed: " << request->id() << std::endl;
-
         }
         update_ring_id();
         print_ring();
@@ -524,11 +522,16 @@ int main(int argc, char** argv) {
 
         server_map = std::map<long,int>(idreply.servermap().begin(),idreply.servermap().end());
         std::cout << "servermap initialized" << std::endl;
-        update_ring_id(); //TODO: this function will be deprecated
-
+        //update_ring_id(); //TODO: this function will be deprecated
+        successor_server_id = find_successor(server_id);
         //Contact successor and transfer keys belonging to current node
         p2p::SplitReq splitrequest;
         p2p::StatusRes splitreply;
+
+        std::cout << "Set server id as " << server_id << std::endl;
+        this_node_address = getP2PServerAddr(server_id);
+        std::thread p2p_server(run_p2p_server);
+        p2p_server.detach();
 
         splitrequest.set_range_end(somehashfunction(std::to_string(server_id)));
         ClientContext context_split;
@@ -542,12 +545,12 @@ int main(int argc, char** argv) {
 
         print_ring();
     } else {
+        std::cout << "Set server id as " << server_id << std::endl;
+        this_node_address = getP2PServerAddr(server_id);
+        std::thread p2p_server(run_p2p_server);
+        p2p_server.detach();
         insert_server_entry(0);
     }
-
-    std::cout << "Set server id as " << server_id << std::endl;
-    this_node_address = getP2PServerAddr(server_id);
-    std::thread p2p_server(run_p2p_server);
 
     ClientContext context_init;
     if(!isMaster) {

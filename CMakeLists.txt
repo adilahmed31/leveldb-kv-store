@@ -31,6 +31,7 @@ get_filename_component(wifs_proto_path "${wifs_proto}" PATH)
 get_filename_component(p2p_proto "protos/p2p.proto" ABSOLUTE)
 get_filename_component(p2p_proto_path "${p2p_proto}" PATH)
 
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # Generated sources
 set(wifs_proto_srcs "${CMAKE_CURRENT_BINARY_DIR}/wifs.pb.cc")
 set(wifs_proto_hdrs "${CMAKE_CURRENT_BINARY_DIR}/wifs.pb.h")
@@ -90,14 +91,14 @@ find_library(PTHREAD_LIB  NAMES pthread)
 find_library(LEVELDB_LIB  NAMES leveldb HINTS /usr/local/lib/)
 
 # client
-#add_executable(client "client.cc")
-#target_link_libraries(client
-#  ${PTHREAD_LIB}
-#  wifs_grpc_proto
-#  ${_REFLECTION}
-#  ${_GRPC_GRPCPP}
-#  ${_PROTOBUF_LIBPROTOBUF})
-#set_property(TARGET client PROPERTY POSITION_INDEPENDENT_CODE ON)
+add_library(client SHARED "client.cc")
+target_link_libraries(client
+  ${PTHREAD_LIB}
+  wifs_grpc_proto
+  ${_REFLECTION}
+  ${_GRPC_GRPCPP}
+  ${_PROTOBUF_LIBPROTOBUF})
+set_property(TARGET client PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 add_library(custom_fs "custom_fs.cc")
 target_link_libraries(custom_fs
