@@ -8,11 +8,11 @@ service PeerToPeer {
     rpc Ping(HeartBeat) returns (HeartBeat) {}
     rpc p2p_GET(wifs.GetReq) returns (wifs.GetRes){}
     rpc p2p_PUT(wifs.PutReq) returns (wifs.PutRes){}
-    rpc AllotServerId(HeartBeat) returns (ServerId){}
-    rpc BroadcastServerId(ServerId) returns (HeartBeat){}
+    rpc AllotServerId(HeartBeat) returns (ServerInit){}
+    rpc BroadcastServerId(ServerInit) returns (HeartBeat){}
     rpc InitializeNewServer(HeartBeat) returns (HeartBeat){}
     rpc CompactMemTable(HeartBeat) returns (StatusRes){}
-    rpc MergeDB(ServerId) returns (StatusRes){}
+    rpc MergeDB(ServerInit) returns (StatusRes){}
     rpc SplitDB(SplitReq) returns (StatusRes){}
 }
 
@@ -40,12 +40,13 @@ message SplitReq {
     int32 id = 2;
 }
 
-message ServerId {
+message ServerInit {
     enum Action{
         INSERT = 0;
         DELETE = 1;
     }
     Action action = 1;
     int32 id = 2;
-    map<int64, int32> servermap = 3;
+    map<int64, wifs.ServerDetails> servermap = 3;
+    string ipaddr = 4;
 }
