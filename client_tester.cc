@@ -10,7 +10,8 @@
 void tester(char* key) {
     char buf[BLOCK_SIZE + 1];
     for (int i = 0; i < BLOCK_SIZE; i++) buf[i] = 'Z';
-    int rc = do_put(key, buf);
+    int rc;
+    rc = do_put(key, buf);
     if (rc == -1) std::cout << "PUT FAIL\n";
 
     buf[0] = '\0';

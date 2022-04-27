@@ -266,6 +266,9 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         std::cout << "Server "<< request->id() <<" asked this server to split database" << std::endl;
         
         leveldb::Options options;
+        // when the new server has just come up, though it has created the folder, it hasn't yet spun up 
+        // a levelDB instance. we need to have this create flag for the writes to go through.
+        options.create_if_missing = true;
         leveldb:WriteOptions w;
         leveldb::DB* db_split;
         leveldb::WriteBatch writebatch; //batched writes to new db
@@ -520,6 +523,14 @@ int main(int argc, char** argv) {
         ClientContext context;
         s = client_stub_[0]->AllotServerId(&context, hbrequest, &idreply);
         server_id = idreply.id();
+        
+        // Create server path if it doesn't exist, should be done before calling split/merge db
+        // and after getting server id from master.
+        DIR* dir = opendir(getServerDir(server_id).c_str());
+        if (ENOENT == errno) {
+            mkdir(getServerDir(server_id).c_str(), 0777);
+        }
+
         isMaster = 0;
 
         server_map = std::map<long,int>(idreply.servermap().begin(),idreply.servermap().end());
@@ -542,6 +553,11 @@ int main(int argc, char** argv) {
 
         print_ring();
     } else {
+        // Create server path if it doesn't exist
+        DIR* dir = opendir(getServerDir(server_id).c_str());
+        if (ENOENT == errno) {
+            mkdir(getServerDir(server_id).c_str(), 0777);
+        }
         insert_server_entry(0);
     }
 
@@ -557,19 +573,15 @@ int main(int argc, char** argv) {
     }
     cur_node_wifs_address = getWifsServerAddr(server_id);
 
-    // Create server path if it doesn't exist
-    DIR* dir = opendir(getServerDir(server_id).c_str());
-    if (ENOENT == errno) {
-        mkdir(getServerDir(server_id).c_str(), 0777);
-    }
-
     // spin off level db server locally
     leveldb::Options options;
     options.create_if_missing = true;
 
-    leveldb::Env* actual_env = leveldb::Env::Default();
-    leveldb::Env* env = new CustomEnv(actual_env);
-    options.env = env;
+    // now that we are doing consistent hashing and levelDB is being spun up on EFS, no need to use 
+    // the custom storage interface, right?
+    // leveldb::Env* actual_env = leveldb::Env::Default();
+    // leveldb::Env* env = new CustomEnv(actual_env);
+    // options.env = env;
 
     std::cout << getServerDir(server_id) <<std::endl;
     leveldb::Status status = leveldb::DB::Open(options, getServerDir(server_id).c_str(), &db);
