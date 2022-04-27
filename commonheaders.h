@@ -24,21 +24,26 @@
 int read_index = 0;
 int primary_index = 0;
 int single_server = 0;
+std::string master_file;
 
-std::string getServerDir(int machine_id){
+std::string getHomeDir() {
     const char *homedir;
     if ((homedir = getenv("HOME")) == NULL) {
         homedir = getpwuid(getuid())->pw_dir;
     }
-        return std::string(homedir) + "/.server" + std::to_string(machine_id);
+    return std::string(homedir);
+}
+
+std::string getServerDir(int machine_id){
+    return getHomeDir() + "/.server" + std::to_string(machine_id);
 }
 
 std::string getP2PServerAddr(int machine_id){
-        return "localhost:" +  std::to_string(50060+machine_id);
+    return "localhost:" +  std::to_string(50060+machine_id);
 }
 
 std::string getWifsServerAddr(int machine_id){
-        return "localhost:" +  std::to_string(50070+machine_id);
+    return "localhost:" +  std::to_string(50070+machine_id);
 }
 
 //Consistent hashing - modify/replace hash function if required
