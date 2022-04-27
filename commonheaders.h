@@ -42,12 +42,12 @@ std::string getServerDir(int machine_id){
     return getHomeDir() + "/.server" + std::to_string(machine_id);
 }
 
-std::string getP2PServerAddr(std::string ipaddr, int machine_id){
-        return ipaddr + ":"+ std::to_string(50060+machine_id);
+std::string getP2PServerAddr(wifs::ServerDetails sd){
+        return sd.ipaddr() + ":"+ std::to_string(50060 + sd.serverid());
 }
 
-std::string getWifsServerAddr(std::string ipaddr, int machine_id){
-        return ipaddr + ":"+ std::to_string(50070+machine_id);
+std::string getWifsServerAddr(wifs::ServerDetails sd){
+        return sd.ipaddr() + ":"+ std::to_string(50070 + sd.serverid());
 }
 
 //Consistent hashing - modify/replace hash function if required

@@ -11,7 +11,7 @@ static struct options {
 
 
 int init(wifs::ServerDetails details) {
-    options.wifsclient[details.serverid()] = new WifsClient(grpc::CreateChannel(getWifsServerAddr(details.ipaddr(), details.serverid()), grpc::InsecureChannelCredentials()));
+    options.wifsclient[details.serverid()] = new WifsClient(grpc::CreateChannel(getWifsServerAddr(details), grpc::InsecureChannelCredentials()));
 }
 
 int do_get(char* key, char* val) {

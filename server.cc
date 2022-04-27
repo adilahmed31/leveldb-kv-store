@@ -122,25 +122,7 @@ wifs::ServerDetails find_successor(int pred_server_id){
 }
 
 void connect_with_peer(wifs::ServerDetails server_details) {
-    client_stub_[server_details.serverid()] = PeerToPeer::NewStub(grpc::CreateChannel(getP2PServerAddr(server_details.ipaddr(),server_details.serverid()), grpc::InsecureChannelCredentials()));
-}
-
-void killserver() {
-    kill(getpid(), SIGKILL);
-}
-
-void mem_put(void) {
-    
-    return;
-}
-
-void flush(void) {
- 
-    return;
-}
-
-void get(void) {
-    return;
+    client_stub_[server_details.serverid()] = PeerToPeer::NewStub(grpc::CreateChannel(getP2PServerAddr(server_details), grpc::InsecureChannelCredentials()));
 }
 
 void populate_hash_server_map(google::protobuf::Map<long, wifs::ServerDetails>* map) {
@@ -612,8 +594,8 @@ int main(int argc, char** argv) {
     }
 
     std::cout << "Set server id as " << server_details.serverid() << std::endl;
-    this_node_address = getP2PServerAddr(server_details.ipaddr(), server_details.serverid());
-    cur_node_wifs_address = getWifsServerAddr(server_details.ipaddr(), server_details.serverid());
+    this_node_address = getP2PServerAddr(server_details);
+    cur_node_wifs_address = getWifsServerAddr(server_details);
 
     std::thread p2p_server(run_p2p_server);
     
