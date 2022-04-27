@@ -77,6 +77,8 @@ char root_path[MAX_PATH_LENGTH];
 int server_id = 0;
 int last_server_id = 0; //This is to be used only by first server currently.
 int timestamp = 0;
+// TODO: read this from file when persisted 
+int master_id = 0;
 
 int ring_id = 0;
 int successor_server_id = 0;
@@ -90,8 +92,8 @@ auto then = std::chrono::system_clock::now();
 std::condition_variable cv;
 
 leveldb::DB* db;
+
 void heartbeat(int heartbeat_server_id);
-void heartbeat_new();
 
 void broadcast_new_server_to_all(int new_server_id, int mode);
 
@@ -381,7 +383,7 @@ class WifsServiceImplementation final : public WIFS::Service {
 //mode 0 => insert server_id (node join), mode 1 => delete server_id (node exit)
 void broadcast_new_server_to_all(int new_server_id, int mode){
   for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
-    if (it->second > 0){ //don't broadcast to self (server 0) //TODO: Change this to Master IP / ID
+    if (it->second != master_id){ //don't broadcast to self (server 0)
         if(client_stub_[it->second] == NULL) connect_with_peer(it->second);
         
         ClientContext context;
@@ -474,25 +476,52 @@ void heartbeat(int heartbeat_server_id){
 }
 
 void watch_for_master() {
-    while(true) {
+    while(true && master_id != server_id) {
         auto now = std::chrono::system_clock::now();
         std::chrono::duration<double> diff = now - then;
         std::cout<<"Time elapsed between latest ping from master till now = "<<diff.count()<<std::endl;
         if(diff.count() > 5) {
-            std::cout<<"FIND NEW MASTER"<<std::endl;
-            /* TODO: find new master from server_map
-             additionally, whoever is the new master will now persist its ip on a file that a newly joined server 
-             can use to connect to master, kind of like how bigtable master does using Chubby. (figure out and handle locks maybe?)*/
+            std::cout<<"----FINDING NEW MASTER----"<<std::endl;
+            //TODO: can use to connect to master, kind of like how bigtable master does using Chubby. (figure out and handle locks maybe?)
+             int next_master_id = INT_MAX;
+             for(auto it = server_map.begin(); it != server_map.end(); it++) {
+                    if(it->second != master_id) {
+                        next_master_id = std::min(next_master_id, it->second);
+                    }
+             }
+            master_id = next_master_id;
+            std::cout<<"Next master id = "<<std::to_string(master_id)<<std::endl;
+            std::ofstream file;
+            file.open(master_file.c_str());
+            file << std::to_string(master_id) << std::endl;
+            then = std::chrono::system_clock::now();
+            file.close();
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
     }
 }
 
+void find_master_server() {
+    master_file = getHomeDir() + "/.master"; 
+    FILE *file = fopen(master_file.c_str(), "r");
+    if (file) {
+        fclose(file);
+        std::ifstream t(master_file.c_str());
+        std::stringstream buffer;
+        buffer << t.rdbuf();
+        
+        master_id = stoi(buffer.str());
+        // std::cout<<"INIT MASTER = "<<master_id<<std::endl;
+    } else {
+        master_id = 0;
+    } 
+    std::cout<<"----MASTER ID----"<<master_id<<std::endl;
+}
+
 
 void sigintHandler(int sig_num)
 {
-    std::cerr << "Clean Shutdown\n";
-    // fflush(stdout);
+    std::cerr << "----CLEAN SHUTDOWN----\n";
     delete db;
     std::exit(0);
 
@@ -510,18 +539,21 @@ int main(int argc, char** argv) {
     First server adds new server to it's list and redirects future requests. 
     */
 
+    // Check if master is active or not. If file exists, then there's master, else, no master, so create file and become master
+    find_master_server(); 
     //Check if firstserver exists
-    connect_with_peer(0);
+    connect_with_peer(master_id);
     ClientContext context;
     p2p::HeartBeat hbrequest, hbreply;
     // TODO: not sure if needed, maybe useful later?
     int isMaster = 1;
-    grpc::Status s = client_stub_[0]->Ping(&context, hbrequest, &hbreply);
+    grpc::Status s = client_stub_[master_id]->Ping(&context, hbrequest, &hbreply);
     
     if(s.ok()) {
+        std::cout<<"Server initing, master_id =  "<<master_id<<std::endl;
         p2p::ServerId idreply;
         ClientContext context;
-        s = client_stub_[0]->AllotServerId(&context, hbrequest, &idreply);
+        s = client_stub_[master_id]->AllotServerId(&context, hbrequest, &idreply);
         server_id = idreply.id();
         
         // Create server path if it doesn't exist, should be done before calling split/merge db
@@ -552,13 +584,13 @@ int main(int argc, char** argv) {
 
 
         print_ring();
-    } else {
+    } else if (server_id == master_id) {
         // Create server path if it doesn't exist
         DIR* dir = opendir(getServerDir(server_id).c_str());
         if (ENOENT == errno) {
             mkdir(getServerDir(server_id).c_str(), 0777);
         }
-        insert_server_entry(0);
+        insert_server_entry(master_id);
     }
 
     std::cout << "Set server id as " << server_id << std::endl;
@@ -566,8 +598,8 @@ int main(int argc, char** argv) {
     std::thread p2p_server(run_p2p_server);
 
     ClientContext context_init;
-    if(!isMaster) {
-        s = client_stub_[0]->InitializeNewServer(&context_init, hbrequest, &hbreply);
+    if(!isMaster ) {
+        s = client_stub_[master_id]->InitializeNewServer(&context_init, hbrequest, &hbreply);
         std::thread watch(watch_for_master);
         watch.detach();
     }
