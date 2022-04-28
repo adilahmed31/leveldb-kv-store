@@ -13,10 +13,10 @@ import time
 client1 = Client()
 
 #Step 2: Perform the put operation
-client1.put("l1fsdf", "f" * 4096)
+client1.put("l1fsdf", "testing123")
 
 #Step 3: Perform the read
-# client1.get("k")
+client1.get("l1fsdf")
 
 #Step 4: Check result
-# print(client1.read_buf)
+print(client1.read_buf)

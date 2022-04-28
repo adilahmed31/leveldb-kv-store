@@ -4,6 +4,7 @@ from subprocess import Popen, PIPE, STDOUT, DEVNULL
 import threading
 import enum
 
+charptr = POINTER(c_char)
 
 def get_write_buffer(buffer):
     return c_char_p(buffer.encode('utf-8'))
@@ -11,8 +12,9 @@ def get_write_buffer(buffer):
 def get_offset(offset):
     return c_int(offset)
 
-def get_read_buffer(size):
-    read_buf = create_string_buffer(size)
+def get_read_buffer():
+    # read_buf = create_string_buffer()
+    read_buf = POINTER(c_char)
     return read_buf
 
 def get_c_string(word):
@@ -30,14 +32,18 @@ class Server():
 class Client():
     def __init__(self):
         self.libclient = CDLL(os.path.abspath("../build/libclient.so"))
+        self.libclient.do_get.argtypes = [c_char_p, c_char_p]
+        self.libclient.do_get.restypes = c_int
+        # self.libc = CDLL()
         # self.libclient.init(server_id)
 
     def get(self, key):
-        self.read_buf = get_read_buffer(4096)
+        key = get_write_buffer(key)
+        self.read_buf = create_string_buffer(1000000)
         self.libclient.do_get(key,self.read_buf)
         self.read_buf = self.read_buf.value.decode("utf-8")
     
     def put(self, key, value):
         write_buf = get_write_buffer(value)
-        key = create_string_buffer(key)
+        key = get_write_buffer(key)
         self.libclient.do_put(key, write_buf)
