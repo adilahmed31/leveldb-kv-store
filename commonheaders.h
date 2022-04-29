@@ -13,10 +13,14 @@
 #include <sys/types.h>
 #include <pwd.h>
 #include <iostream>
+#include "wifs.grpc.pb.h"
+using wifs::ServerDetails;
 
 #define MAX_PATH_LENGTH 1000
 #define HEARTBEAT_TIMER 1000
 #define RINGLENGTH 255
+
+#define MASTER_IP "localhost"
 
 //limiting max servers to use static array for client_stub - can be depreciated if client_stub need not be reused
 #define MAX_NUM_SERVERS 100 
@@ -25,6 +29,7 @@ int read_index = 0;
 int primary_index = 0;
 int single_server = 0;
 std::string master_file;
+int MASTER_ID = 0;
 
 std::string getHomeDir() {
     const char *homedir;
@@ -38,12 +43,12 @@ std::string getServerDir(int machine_id){
     return getHomeDir() + "/.server" + std::to_string(machine_id);
 }
 
-std::string getP2PServerAddr(int machine_id){
-    return "localhost:" +  std::to_string(50060+machine_id);
+std::string getP2PServerAddr(wifs::ServerDetails sd){
+        return sd.ipaddr() + ":"+ std::to_string(50060 + sd.serverid());
 }
 
-std::string getWifsServerAddr(int machine_id){
-    return "localhost:" +  std::to_string(50070+machine_id);
+std::string getWifsServerAddr(wifs::ServerDetails sd){
+        return sd.ipaddr() + ":"+ std::to_string(50070 + sd.serverid());
 }
 
 //Consistent hashing - modify/replace hash function if required
@@ -60,10 +65,13 @@ unsigned int somehashfunction(std::string s) {
 }
 
 //Save list of servers in ascending order of ranges of keys handled
-std::map<long,int> server_map;
+std::map<long,wifs::ServerDetails> server_map;
 
-void insert_server_entry(int server_id){
-  server_map[somehashfunction(std::to_string(server_id))] = server_id;
+void insert_server_entry(int server_id, std::string server_ipaddr){
+    wifs::ServerDetails sd;
+    sd.set_serverid(server_id);
+    sd.set_ipaddr(server_ipaddr);
+    server_map[somehashfunction(std::to_string(server_id))] = sd;
 }
 
 void remove_server_entry(int server_id){
@@ -72,7 +80,7 @@ void remove_server_entry(int server_id){
 
 void print_ring(){
     for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
-        std::cout<<it->first<<" - "<<it->second<<std::endl;
+        std::cout<<it->first<<" - "<<it->second.serverid()<<std::endl;
     }
 }
 
