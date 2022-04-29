@@ -202,8 +202,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     grpc::Status PingMaster(ServerContext* context, const p2p::ServerId* request, p2p::HeartBeat* reply) {
         std::cout << "Ping from server "<<request->id()<<std::endl;
         then = std::chrono::system_clock::now();
-        std::thread hb(heartbeat, request->id());
-        hb.detach();
+        do_heartbeat(request->id());
         return grpc::Status::OK;
     }
 
@@ -217,13 +216,8 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         insert_server_entry(last_server_id);//TODO: take server id from request
         broadcast_new_server_to_all(last_server_id, 0); //broadcast to the new server also, mode 0 for adding server ID
         //Add to server list
-        // std::thread hb(heartbeat, last_server_id);
-        // hb.detach();
-        do_heartbeat(last_server_id);
         update_ring_id();
         print_ring();
-        //heartbeat start
-        
         return grpc::Status::OK;
     }
 
@@ -510,13 +504,13 @@ void watch_for_master() {
                     break;
                 }
             }
-            std::cout<<"After first for\n";
+
             for(auto it = server_map.begin(); it != server_map.end(); it++) {
                 if(it->second != master_id) {
                     next_master_id = std::min(next_master_id, it->second);
                 }
             }
-            std::cout<<"After 2nd for\n";
+    
             master_id = next_master_id;
             std::cout<<"Next master id = "<<std::to_string(master_id)<<std::endl;
             std::ofstream file;
@@ -531,10 +525,6 @@ void watch_for_master() {
                         do_heartbeat(it->second);
                 }
             }
-            
-            
-            // std::thread hb(heartbeat, last_server_id);
-            // hb.detach();
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
     }
@@ -556,7 +546,6 @@ void find_master_server() {
     } 
     std::cout<<"----MASTER ID----"<<master_id<<std::endl;
 }
-
 
 void sigintHandler(int sig_num)
 {
@@ -650,10 +639,6 @@ int main(int argc, char** argv) {
         }
         insert_server_entry(master_id);
     }
-
-    std::cout << "Set server id as " << server_id << std::endl;
-    this_node_address = getP2PServerAddr(server_id);
-    std::thread p2p_server(run_p2p_server);
 
     ClientContext context_init;
     if(!isMaster ) {
