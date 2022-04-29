@@ -214,6 +214,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
 
     grpc::Status InitializeNewServer(ServerContext* context, const p2p::ServerInit* request, p2p::HeartBeat* reply) {
         //Add to server list
+        std::cout<<"HELLOOOO"<<std::endl;
         p2p::ServerInit request_copy = *request;
         insert_server_entry(request->id(), request->ipaddr());
         request_copy.set_action(p2p::ServerInit_Action_INSERT);
@@ -563,11 +564,11 @@ int main(int argc, char** argv) {
     int isMaster = 1;
     grpc::Status s = client_stub_[MASTER_ID]->Ping(&context_ping, hbrequest, &hbreply);
     std::cout << MASTER_ID << s.ok() << std::endl;
+    p2p::ServerInit idreply;
     
     if(s.ok()) {
         std::cout<<"Server initing, MASTER_ID =  "<<MASTER_ID<<std::endl;
         isMaster = 0;
-        p2p::ServerInit idreply;
         ClientContext context;
         s = client_stub_[MASTER_ID]->AllotServerId(&context, hbrequest, &idreply);
         server_details.set_serverid(idreply.id());
@@ -614,7 +615,8 @@ int main(int argc, char** argv) {
     
     ClientContext context_init;
     if(!isMaster ) {
-        s = client_stub_[MASTER_ID]->InitializeNewServer(&context_init, hbrequest, &hbreply);
+        std::cout<<"HELLOOOO"<<std::endl;
+        s = client_stub_[MASTER_ID]->InitializeNewServer(&context_init, idreply, &hbreply);
         std::thread watch(watch_for_master);
         watch.detach();
     }

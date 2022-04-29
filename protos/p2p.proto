@@ -10,7 +10,7 @@ service PeerToPeer {
     rpc p2p_PUT(wifs.PutReq) returns (wifs.PutRes){}
     rpc AllotServerId(HeartBeat) returns (ServerInit){}
     rpc BroadcastServerId(ServerInit) returns (HeartBeat){}
-    rpc InitializeNewServer(HeartBeat) returns (HeartBeat){}
+    rpc InitializeNewServer(ServerInit) returns (HeartBeat){}
     rpc CompactMemTable(HeartBeat) returns (StatusRes){}
     rpc MergeDB(ServerInit) returns (StatusRes){}
     rpc SplitDB(SplitReq) returns (StatusRes){}
