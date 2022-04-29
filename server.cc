@@ -448,11 +448,7 @@ void heartbeat_helper(int heartbeat_server_id, int max_retries) {
     }
 }
 
-void heartbeat(int heartbeat_server_id){
-
-    // sleep here
-    heartbeat_helper(heartbeat_server_id, 5);
-    
+void merge_db_helper(int heartbeat_server_id) {
     int failed_server_successor_id = find_successor(heartbeat_server_id);
                     
     //if master is the successor of the failed node, perform the merge locally without an RPC call
@@ -476,12 +472,18 @@ void heartbeat(int heartbeat_server_id){
             std::cout << "Successor could not merge" <<std::endl; //TODO (Handle failure)
         }
     }
-    remove_server_entry(heartbeat_server_id);
+}
 
+void heartbeat(int heartbeat_server_id){
+    heartbeat_helper(heartbeat_server_id, 5);
+    // heartbeat failed after 5 retries, so now merge DBs
+    merge_db_helper(heartbeat_server_id);
+    // remove failed server from server_map
+    remove_server_entry(heartbeat_server_id);
     //Update server maps of all servers to remove entry
     broadcast_new_server_to_all(heartbeat_server_id, 1); //mode 1 is for deleting entries
     return;
-            // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry  
+    // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry  
 }
 
 void do_heartbeat(int s_id) {
@@ -606,13 +608,11 @@ int main(int argc, char** argv) {
         init_p2p_server();
 
         // add sync grpc call letting the master know it's there
-        // heartbeat_helper(master_id, 1);
         ClientContext context1;
         p2p::ServerId req1;
         p2p::HeartBeat hbreply1;
         grpc::Status s1 = client_stub_[master_id]->PingMaster(&context1, idreply, &hbreply1);
 
-        // std::cout<<"is s1 ok ? = "<<s1.ok()<<std::endl;
         //update_ring_id(); //TODO: this function will be deprecated
         successor_server_id = find_successor(server_id);
         //Contact successor and transfer keys belonging to current node
