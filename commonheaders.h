@@ -19,7 +19,7 @@ using wifs::ServerDetails;
 #define MAX_PATH_LENGTH 1000
 #define HEARTBEAT_TIMER 1000
 #define RINGLENGTH 255
-#define MASTER_ID 0
+
 #define MASTER_IP "localhost"
 
 //limiting max servers to use static array for client_stub - can be depreciated if client_stub need not be reused
@@ -29,6 +29,7 @@ int read_index = 0;
 int primary_index = 0;
 int single_server = 0;
 std::string master_file;
+int MASTER_ID = 0;
 
 std::string getHomeDir() {
     const char *homedir;

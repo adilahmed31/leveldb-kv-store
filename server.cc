@@ -125,6 +125,24 @@ void connect_with_peer(wifs::ServerDetails server_details) {
     client_stub_[server_details.serverid()] = PeerToPeer::NewStub(grpc::CreateChannel(getP2PServerAddr(server_details), grpc::InsecureChannelCredentials()));
 }
 
+void killserver() {
+    kill(getpid(), SIGKILL);
+}
+
+void mem_put(void) {
+    
+    return;
+}
+
+void flush(void) {
+ 
+    return;
+}
+
+void get(void) {
+    return;
+}
+
 void populate_hash_server_map(google::protobuf::Map<long, wifs::ServerDetails>* map) {
     *map = google::protobuf::Map<long, wifs::ServerDetails>(server_map.begin(), server_map.end());
 }
@@ -383,7 +401,7 @@ class WifsServiceImplementation final : public WIFS::Service {
 //mode 0 => insert server_id (node join), mode 1 => delete server_id (node exit)
 void broadcast_new_server_to_all(const p2p::ServerInit idrequest){
   for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
-    if (it->second != MASTER_ID){ //don't broadcast to self (server 0)
+    if (it->second.serverid() != MASTER_ID){ //don't broadcast to self (server 0)
         if(client_stub_[it->second.serverid()] == NULL) connect_with_peer(it->second);
         
         ClientContext context;
@@ -469,7 +487,7 @@ void heartbeat(int heartbeat_server_id){
 }
 
 void watch_for_master() {
-    while(true && MASTER_ID != server_id) {
+    while(true && MASTER_ID != server_details.serverid()) {
         auto now = std::chrono::system_clock::now();
         std::chrono::duration<double> diff = now - then;
         std::cout<<"Time elapsed between latest ping from master till now = "<<diff.count()<<std::endl;
@@ -478,8 +496,8 @@ void watch_for_master() {
             //TODO: can use to connect to master, kind of like how bigtable master does using Chubby. (figure out and handle locks maybe?)
              int next_master_id = INT_MAX;
              for(auto it = server_map.begin(); it != server_map.end(); it++) {
-                    if(it->second != MASTER_ID) {
-                        next_master_id = std::min(next_master_id, it->second);
+                    if(it->second.serverid() != MASTER_ID) {
+                        next_master_id = std::min(next_master_id, it->second.serverid());
                     }
              }
             MASTER_ID = next_master_id;
@@ -548,18 +566,6 @@ int main(int argc, char** argv) {
     
     if(s.ok()) {
         std::cout<<"Server initing, MASTER_ID =  "<<MASTER_ID<<std::endl;
-        p2p::ServerId idreply;
-        ClientContext context;
-        s = client_stub_[MASTER_ID]->AllotServerId(&context, hbrequest, &idreply);
-        server_id = idreply.id();
-        
-        // Create server path if it doesn't exist, should be done before calling split/merge db
-        // and after getting server id from master.
-        DIR* dir = opendir(getServerDir(server_id).c_str());
-        if (ENOENT == errno) {
-            mkdir(getServerDir(server_id).c_str(), 0777);
-        }
-
         isMaster = 0;
         p2p::ServerInit idreply;
         ClientContext context;
@@ -567,6 +573,13 @@ int main(int argc, char** argv) {
         server_details.set_serverid(idreply.id());
         server_details.set_ipaddr(idreply.ipaddr());
         
+        // Create server path if it doesn't exist, should be done before calling split/merge db
+        // and after getting server id from master.
+        DIR* dir = opendir(getServerDir(server_details.serverid()).c_str());
+        if (ENOENT == errno) {
+            mkdir(getServerDir(server_details.serverid()).c_str(), 0777);
+        }
+
         server_map = std::map<long, wifs::ServerDetails>(idreply.servermap().begin(),idreply.servermap().end());
         std::cout << "servermap initialized" << std::endl;
         update_ring_id(); //TODO: this function will be deprecated
@@ -584,11 +597,11 @@ int main(int argc, char** argv) {
             std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
         }
         print_ring();
-    } else if (server_id == MASTER_ID) {
+    } else if (server_details.serverid() == MASTER_ID) {
         // Create server path if it doesn't exist
-        DIR* dir = opendir(getServerDir(server_id).c_str());
+        DIR* dir = opendir(getServerDir(server_details.serverid()).c_str());
         if (ENOENT == errno) {
-            mkdir(getServerDir(server_id).c_str(), 0777);
+            mkdir(getServerDir(server_details.serverid()).c_str(), 0777);
         }
         insert_server_entry(server_details.serverid(), server_details.ipaddr());
     }
