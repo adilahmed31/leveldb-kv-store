@@ -30,6 +30,7 @@ class Client():
         self.read_buf = get_read_buffer()
         self.libclient.do_get(key,self.read_buf)
         self.read_buf = self.read_buf.value.decode("utf-8")
+        return self.read_buf
     
     def put(self, key, value):
         write_buf = get_write_buffer(value)
