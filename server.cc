@@ -94,6 +94,7 @@ std::condition_variable cv;
 leveldb::DB* db;
 
 void do_heartbeat(int heartbeat_server_id);
+void heartbeat_helper(int heartbeat_server_id);
 void heartbeat(int heartbeat_server_id);
 
 void broadcast_new_server_to_all(int new_server_id, int mode);
@@ -195,6 +196,14 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     grpc::Status Ping(ServerContext* context, const p2p::HeartBeat* request, p2p::HeartBeat* reply) {
         std::cout << "Ping!" <<std::endl;
         then = std::chrono::system_clock::now();
+        return grpc::Status::OK;
+    }
+
+    grpc::Status PingMaster(ServerContext* context, const p2p::ServerId* request, p2p::HeartBeat* reply) {
+        std::cout << "Ping from server "<<request->id()<<std::endl;
+        then = std::chrono::system_clock::now();
+        std::thread hb(heartbeat, request->id());
+        hb.detach();
         return grpc::Status::OK;
     }
 
@@ -427,12 +436,10 @@ void run_p2p_server() {
     server->Wait();
 }
 
-void heartbeat(int heartbeat_server_id){
-
-    // sleep here
+void heartbeat_helper(int heartbeat_server_id, int max_retries) {
     if (client_stub_[heartbeat_server_id] == NULL) connect_with_peer(heartbeat_server_id);
     int retry_count = 0;
-    while(retry_count < 5) {
+    while(retry_count < max_retries) {
         ClientContext context;
         p2p::HeartBeat hbrequest, hbreply;
         grpc::Status s = client_stub_[heartbeat_server_id]->Ping(&context, hbrequest, &hbreply);
@@ -445,6 +452,12 @@ void heartbeat(int heartbeat_server_id){
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
+}
+
+void heartbeat(int heartbeat_server_id){
+
+    // sleep here
+    heartbeat_helper(heartbeat_server_id, 5);
     
     int failed_server_successor_id = find_successor(heartbeat_server_id);
                     
@@ -553,6 +566,13 @@ void sigintHandler(int sig_num)
 
 }
 
+void init_p2p_server() {
+    std::cout << "Set server id as " << server_id << std::endl;
+    this_node_address = getP2PServerAddr(server_id);
+    std::thread p2p_server(run_p2p_server);
+    p2p_server.detach();
+}
+
 int main(int argc, char** argv) {
     //Ctrl + C handler
     signal(SIGINT, sigintHandler);
@@ -593,14 +613,25 @@ int main(int argc, char** argv) {
 
         server_map = std::map<long,int>(idreply.servermap().begin(),idreply.servermap().end());
         std::cout << "servermap initialized" << std::endl;
-        update_ring_id(); //TODO: this function will be deprecated
 
+        init_p2p_server();
+
+        // add sync grpc call letting the master know it's there
+        // heartbeat_helper(master_id, 1);
+        ClientContext context1;
+        p2p::ServerId req1;
+        p2p::HeartBeat hbreply1;
+        grpc::Status s1 = client_stub_[master_id]->PingMaster(&context1, idreply, &hbreply1);
+
+        // std::cout<<"is s1 ok ? = "<<s1.ok()<<std::endl;
+        //update_ring_id(); //TODO: this function will be deprecated
+        successor_server_id = find_successor(server_id);
         //Contact successor and transfer keys belonging to current node
+        ClientContext context_split;
         p2p::SplitReq splitrequest;
         p2p::StatusRes splitreply;
 
         splitrequest.set_range_end(somehashfunction(std::to_string(server_id)));
-        ClientContext context_split;
         if(client_stub_[successor_server_id] == NULL) 
             connect_with_peer(successor_server_id);
         
@@ -609,9 +640,9 @@ int main(int argc, char** argv) {
         if (splitreply.status() == p2p::StatusRes_Status_FAIL){
             std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
         }
-
         print_ring();
-    } else if (server_id == master_id) {
+    } else {
+        init_p2p_server();
         // Create server path if it doesn't exist
         DIR* dir = opendir(getServerDir(server_id).c_str());
         if (ENOENT == errno) {
