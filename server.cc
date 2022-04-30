@@ -232,16 +232,9 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         insert_server_entry(request->id(), request->ipaddr());
         request_copy.set_action(p2p::ServerInit_Action_INSERT);
         broadcast_new_server_to_all(request_copy); //broadcast to the new server also, mode 0 for adding server ID
-        if (client_stub_[request->id()] == NULL) {
-            wifs::ServerDetails peerdetails;
-            peerdetails.set_serverid(request->id());
-            peerdetails.set_ipaddr(request->ipaddr());
-            connect_with_peer(peerdetails);
-        }
-        wifs::ServerDetails hb_server_details;
-        hb_server_details.set_serverid(request->id());
-        hb_server_details.set_ipaddr(request->ipaddr());
-        do_heartbeat(hb_server_details);
+        
+        // no need to start heartbeat here, as it is being started in PingMaster itself. 
+        
         update_ring_id();
         print_ring();
         return grpc::Status::OK;
