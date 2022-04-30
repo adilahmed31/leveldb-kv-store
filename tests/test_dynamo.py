@@ -17,7 +17,7 @@ Sequential reads/writes traverse the key space in increasing order.
 Random reads/writes traverse the key space in random order.
 '''
 
-class Workloads(object):
+class DynamoWorkloads(object):
 
     def __init__(self, num_keys, random = True):
         # Get the service resource.
@@ -84,14 +84,13 @@ class Workloads(object):
         print(f"Time for random gets (single client): {time_get}")
 
 if __name__ == "__main__":
-    client = Client()
     num_keys = 100
 
-    test_rand_workload = Workloads(client, num_keys)
+    test_rand_workload = DynamoWorkloads(num_keys)
     test_rand_workload.send_puts()
     test_rand_workload.send_gets()
 
-    test_seq_workload = Workloads(client, num_keys, random=False)
+    test_seq_workload = DynamoWorkloads(num_keys, random=False)
     test_seq_workload.send_puts()
     test_seq_workload.send_gets()
     
