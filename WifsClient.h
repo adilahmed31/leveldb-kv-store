@@ -20,6 +20,7 @@ using wifs::GetRes;
 using wifs::WIFS;
 using wifs::PutReq;
 using wifs::PutRes;
+using wifs::ServerDetails;
 
 #define BLOCK_SIZE 100000
 
@@ -27,9 +28,9 @@ class WifsClient {
    public:
     WifsClient(std::shared_ptr<Channel> channel) : stub_(WIFS::NewStub(channel)) {}
 
-    void print_map(const google::protobuf::Map<long, int> &ht) {
+    void print_map(const google::protobuf::Map<long, wifs::ServerDetails> &ht) {
         for(auto it = ht.begin() ; it != ht.end() ; it++) {
-            std::cout<<it->first<<" - "<<it->second<<"\n";
+            std::cout<<it->first<<" - "<<it->second.serverid()<<"\n";
         }
     }
 
@@ -41,7 +42,7 @@ class WifsClient {
         request.set_key(std::string(key));
         Status status = stub_->wifs_GET(&context, request, &reply);
         print_map(reply.hash_server_map());
-        server_map = std::map<long,int>(reply.hash_server_map().begin(), reply.hash_server_map().end());
+        server_map = std::map<long,wifs::ServerDetails>(reply.hash_server_map().begin(), reply.hash_server_map().end());
         int buffer_length = strlen(reply.val().c_str());
         strncpy(val, reply.val().c_str(), buffer_length) ;
         return status.ok() ? 0 : -1;
@@ -56,7 +57,7 @@ class WifsClient {
 
         Status status = stub_->wifs_PUT(&context, request, &reply);
         print_map(reply.hash_server_map());
-        server_map = std::map<long,int>(reply.hash_server_map().begin(), reply.hash_server_map().end());
+        server_map = std::map<long,wifs::ServerDetails>(reply.hash_server_map().begin(), reply.hash_server_map().end());
         return status.ok() ? 0 : -1;
     }
 
