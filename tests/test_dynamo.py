@@ -52,6 +52,15 @@ class DynamoWorkloads(object):
         time_put = 0
         start_time = time.time()
         
+        for key in self.kv:
+            self.table.put_item(
+                Item={
+                    'key': key,
+                    'value': self.kv[key]
+                }
+            )
+
+    ''' FOR BATCH MODE, USE - 
         with self.table.batch_writer() as batch:
             for key in self.kv:
                 batch.put_item(
@@ -59,7 +68,8 @@ class DynamoWorkloads(object):
                     'key': key,
                     'value': self.kv[key]
                 }
-            )
+                )
+        '''
 
         time_put = time.time() - start_time
         print(f"Time for random puts (single client): {time_put}")
