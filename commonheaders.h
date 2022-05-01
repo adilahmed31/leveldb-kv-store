@@ -13,6 +13,7 @@
 #include <sys/types.h>
 #include <pwd.h>
 #include <iostream>
+#include <fstream>
 #include "wifs.grpc.pb.h"
 using wifs::ServerDetails;
 
@@ -83,4 +84,3 @@ void print_ring(){
         std::cout<<it->first<<" - "<<it->second.serverid()<<std::endl;
     }
 }
-

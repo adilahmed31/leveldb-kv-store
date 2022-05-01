@@ -72,10 +72,14 @@ using p2p::PeerToPeer;
 using p2p::ServerInit;
 using p2p::StatusRes;
 using p2p::SplitReq;
+using p2p::ServerConfig;
 
 char root_path[MAX_PATH_LENGTH];
 
 wifs::ServerDetails server_details;
+
+//changes to support write modes
+p2p::ServerConfig config;
 
 int last_server_id = 0; //This is to be used only by first server currently.
 int timestamp = 0; 
@@ -203,13 +207,16 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         return grpc::Status::OK;
     }
 
-    grpc::Status PingMaster(ServerContext* context, const p2p::ServerInit* request, p2p::HeartBeat* reply) {
+    grpc::Status PingMaster(ServerContext* context, const p2p::ServerInit* request, p2p::ServerConfig* reply) {
         std::cout << "Ping from server "<<request->id()<<std::endl;
         then = std::chrono::system_clock::now();
         wifs::ServerDetails hb_server_details;
         hb_server_details.set_serverid(request->id());
         hb_server_details.set_ipaddr(request->ipaddr());
         do_heartbeat(hb_server_details);
+        reply->set_mode(config.mode());
+        reply->set_num_batch(config.num_batch());
+        reply->set_prefix_length(config.prefix_length());
         return grpc::Status::OK;
     }
 
@@ -580,6 +587,30 @@ void init_p2p_server() {
     p2p_server.detach();
 }
 
+void get_config(){
+    std::vector <std::string> values;
+    std::ifstream config_file;
+    config_file.open(getHomeDir() + "/.kv_config");
+    if(config_file.is_open()){
+        while(config_file.good()){
+            std::string value;
+            getline(config_file, value, ',');
+            values.push_back(value);
+        }
+        config_file.close();
+    }
+    else{
+        config.set_mode(static_cast<p2p::ServerConfig_Mode>(0));
+        config.set_num_batch(0);
+        config.set_prefix_length(0);
+        std::cout << "Could not open file"<<std::endl;
+    }
+    config.set_mode(static_cast<p2p::ServerConfig_Mode>(stoi(values[0])));
+    config.set_num_batch(stoi(values[1]));
+    config.set_prefix_length(stoi(values[2]));
+    std::cout << config.mode() <<"  " <<config.num_batch() << "  " <<config.prefix_length() << std::endl;
+}
+
 int main(int argc, char** argv) {
     //Ctrl + C handler
     signal(SIGINT, sigintHandler);
@@ -629,8 +660,7 @@ int main(int argc, char** argv) {
 
         // add sync grpc call letting the master know it's there
         ClientContext context1;
-        p2p::HeartBeat hbreply1;
-        grpc::Status s1 = client_stub_[MASTER_ID]->PingMaster(&context1, idreply, &hbreply1);
+        grpc::Status s1 = client_stub_[MASTER_ID]->PingMaster(&context1, idreply, &config);
 
         //update_ring_id(); //TODO: this function will be deprecated
         successor_server_details = find_successor(server_details.serverid());
@@ -648,6 +678,7 @@ int main(int argc, char** argv) {
         }
         print_ring();
     } else {
+        get_config();
         init_p2p_server();
         // Create server path if it doesn't exist
         DIR* dir = opendir(getServerDir(server_details.serverid()).c_str());
