@@ -61,7 +61,11 @@ add_custom_command(
         -I "${wifs_proto_path}"
         --plugin=protoc-gen-grpc="${_GRPC_CPP_PLUGIN_EXECUTABLE}"
         "${p2p_proto}"
-      DEPENDS "${p2p_proto}" 
+      DEPENDS "${p2p_proto}"
+      DEPENDS "${wifs_proto_srcs}"
+      DEPENDS "${wifs_proto_hdrs}"
+      DEPENDS "${wifs_grpc_srcs}"
+      DEPENDS "${wifs_grpc_hdrs}" 
       DEPENDS "${wifs_proto}")
 
 # Include generated *.pb.h files
