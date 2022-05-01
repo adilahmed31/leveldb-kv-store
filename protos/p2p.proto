@@ -6,6 +6,7 @@ import "wifs.proto";
 
 service PeerToPeer {
     rpc Ping(HeartBeat) returns (HeartBeat) {}
+    rpc PingMaster(ServerInit) returns (HeartBeat) {}
     rpc p2p_GET(wifs.GetReq) returns (wifs.GetRes){}
     rpc p2p_PUT(wifs.PutReq) returns (wifs.PutRes){}
     rpc AllotServerId(HeartBeat) returns (ServerInit){}

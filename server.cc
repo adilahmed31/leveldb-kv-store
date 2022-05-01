@@ -93,7 +93,9 @@ std::condition_variable cv;
 
 leveldb::DB* db;
 
-void heartbeat(int heartbeat_server_id);
+void do_heartbeat(wifs::ServerDetails heartbeat_server_details);
+void heartbeat_helper(wifs::ServerDetails heartbeat_server_details, int max_retries);
+void heartbeat(wifs::ServerDetails heartbeat_server_id);
 
 void broadcast_new_server_to_all(const p2p::ServerInit);
 
@@ -151,7 +153,7 @@ void populate_hash_server_map(google::protobuf::Map<long, wifs::ServerDetails>* 
 void update_ring_id(){
     //Find Ring ID and successor ID
     auto it = getServerIteratorInMap(server_details.serverid());
-    int ring_id = distance(server_map.begin(), it);
+    ring_id = distance(server_map.begin(), it);
     auto it2 = std::next(it,1);
     successor_server_details = (it2 == server_map.end() ? server_map.begin()->second : it2->second);
     std::cout <<" Ring ID of this server : " <<ring_id <<" Successor server ID: "<<successor_server_details.serverid()<<std::endl;
@@ -201,6 +203,16 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         return grpc::Status::OK;
     }
 
+    grpc::Status PingMaster(ServerContext* context, const p2p::ServerInit* request, p2p::HeartBeat* reply) {
+        std::cout << "Ping from server "<<request->id()<<std::endl;
+        then = std::chrono::system_clock::now();
+        wifs::ServerDetails hb_server_details;
+        hb_server_details.set_serverid(request->id());
+        hb_server_details.set_ipaddr(request->ipaddr());
+        do_heartbeat(hb_server_details);
+        return grpc::Status::OK;
+    }
+
     grpc::Status AllotServerId(ServerContext* context, const p2p::HeartBeat* request, p2p::ServerInit* reply) {
         reply->set_id(++last_server_id);
         //get ip address
@@ -216,21 +228,15 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         //Add to server list
         std::cout<<"HELLOOOO"<<std::endl;
         p2p::ServerInit request_copy = *request;
+        
         insert_server_entry(request->id(), request->ipaddr());
         request_copy.set_action(p2p::ServerInit_Action_INSERT);
         broadcast_new_server_to_all(request_copy); //broadcast to the new server also, mode 0 for adding server ID
-        if (client_stub_[request->id()] == NULL) {
-            wifs::ServerDetails peerdetails;
-            peerdetails.set_serverid(request->id());
-            peerdetails.set_ipaddr(request->ipaddr());
-            connect_with_peer(peerdetails);
-        }
-        std::thread hb(heartbeat, request->id());
-        hb.detach();
+        
+        // no need to start heartbeat here, as it is being started in PingMaster itself. 
+        
         update_ring_id();
         print_ring();
-        //heartbeat start
-        
         return grpc::Status::OK;
     }
 
@@ -436,24 +442,25 @@ void run_p2p_server() {
     server->Wait();
 }
 
-void heartbeat(int heartbeat_server_id){
-
-    // sleep here
+void heartbeat_helper(wifs::ServerDetails hb_server_details, int max_retries) {
+    if (client_stub_[hb_server_details.serverid()] == NULL) connect_with_peer(hb_server_details);
     int retry_count = 0;
-    while(retry_count < 5) {
+    while(retry_count < max_retries) {
         ClientContext context;
         p2p::HeartBeat hbrequest, hbreply;
-        grpc::Status s = client_stub_[heartbeat_server_id]->Ping(&context, hbrequest, &hbreply);
+        grpc::Status s = client_stub_[hb_server_details.serverid()]->Ping(&context, hbrequest, &hbreply);
         if(s.ok()) {
             retry_count = 0;
-            std::cout<<heartbeat_server_id<<"'s HEART IS BEATING"<<std::endl;
+            std::cout<<hb_server_details.serverid()<<"'s HEART IS BEATING"<<std::endl;
         } else { 
-            std::cout<<heartbeat_server_id<<"'s HEARTBEAT FAILED\n";
+            std::cout<<hb_server_details.serverid()<<"'s HEARTBEAT FAILED\n";
             retry_count++;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
-    
+}
+
+p2p::ServerInit merge_db_helper(int heartbeat_server_id) {
     wifs::ServerDetails failed_server_successor_details = find_successor(heartbeat_server_id);
     int failed_server_successor_id = failed_server_successor_details.serverid();
     p2p::ServerInit mergerequest;
@@ -478,29 +485,50 @@ void heartbeat(int heartbeat_server_id){
             std::cout << "Successor could not merge" <<std::endl; //TODO (Handle failure)
         }
     }
-    remove_server_entry(heartbeat_server_id);
+    return mergerequest;
+}
 
+void heartbeat(wifs::ServerDetails hb_server_details){
+    int heartbeat_server_id = hb_server_details.serverid();
+    heartbeat_helper(hb_server_details, 5);
+    // heartbeat failed after 5 retries, so now merge DBs
+    p2p::ServerInit mergerequest = merge_db_helper(heartbeat_server_id);
+    // remove failed server from server_map
+    remove_server_entry(heartbeat_server_id);
     //Update server maps of all servers to remove entry
     mergerequest.set_action(p2p::ServerInit_Action_DELETE);
     broadcast_new_server_to_all(mergerequest); //mode 1 is for deleting entries
     return;
-            // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry  
+    // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry  
+}
+
+void do_heartbeat(wifs::ServerDetails hb_server_details) {
+    std::thread hb(heartbeat, hb_server_details);
+    hb.detach();
 }
 
 void watch_for_master() {
-    while(true && MASTER_ID != server_details.serverid()) {
+    while(MASTER_ID != server_details.serverid()) {
         auto now = std::chrono::system_clock::now();
         std::chrono::duration<double> diff = now - then;
         std::cout<<"Time elapsed between latest ping from master till now = "<<diff.count()<<std::endl;
         if(diff.count() > 5) {
             std::cout<<"----FINDING NEW MASTER----"<<std::endl;
             //TODO: can use to connect to master, kind of like how bigtable master does using Chubby. (figure out and handle locks maybe?)
-             int next_master_id = INT_MAX;
-             for(auto it = server_map.begin(); it != server_map.end(); it++) {
-                    if(it->second.serverid() != MASTER_ID) {
-                        next_master_id = std::min(next_master_id, it->second.serverid());
-                    }
-             }
+            int next_master_id = INT_MAX;
+            for(auto it = server_map.begin(); it != server_map.end(); it++) {
+                if(it->second.serverid() == MASTER_ID) {
+                    server_map.erase(it->first);
+                    break;
+                }
+            }
+
+            for(auto it = server_map.begin(); it != server_map.end(); it++) {
+                if(it->second.serverid() != MASTER_ID) {
+                    next_master_id = std::min(next_master_id, it->second.serverid());
+                }
+            }
+    
             MASTER_ID = next_master_id;
             std::cout<<"Next master id = "<<std::to_string(MASTER_ID)<<std::endl;
             std::ofstream file;
@@ -508,6 +536,13 @@ void watch_for_master() {
             file << std::to_string(MASTER_ID) << std::endl;
             then = std::chrono::system_clock::now();
             file.close();
+            if(server_details.serverid() == MASTER_ID) {
+                std::cout<<"In if\n";
+                for(auto it = server_map.begin(); it != server_map.end(); it++) {
+                    if(it->second.serverid() != MASTER_ID)
+                        do_heartbeat(it->second);
+                }
+            }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
     }
@@ -530,13 +565,19 @@ void find_master_server() {
     std::cout<<"----MASTER ID----"<<MASTER_ID<<std::endl;
 }
 
-
 void sigintHandler(int sig_num)
 {
     std::cerr << "----CLEAN SHUTDOWN----\n";
     delete db;
     std::exit(0);
 
+}
+
+void init_p2p_server() {
+    std::cout << "Set server id as " << server_details.serverid() << std::endl;
+    this_node_address = getP2PServerAddr(server_details);
+    std::thread p2p_server(run_p2p_server);
+    p2p_server.detach();
 }
 
 int main(int argc, char** argv) {
@@ -583,14 +624,22 @@ int main(int argc, char** argv) {
 
         server_map = std::map<long, wifs::ServerDetails>(idreply.servermap().begin(),idreply.servermap().end());
         std::cout << "servermap initialized" << std::endl;
-        update_ring_id(); //TODO: this function will be deprecated
 
+        init_p2p_server();
+
+        // add sync grpc call letting the master know it's there
+        ClientContext context1;
+        p2p::HeartBeat hbreply1;
+        grpc::Status s1 = client_stub_[MASTER_ID]->PingMaster(&context1, idreply, &hbreply1);
+
+        //update_ring_id(); //TODO: this function will be deprecated
+        successor_server_details = find_successor(server_details.serverid());
         //Contact successor and transfer keys belonging to current node
+        ClientContext context_split;
         p2p::SplitReq splitrequest;
         p2p::StatusRes splitreply;
 
         splitrequest.set_range_end(somehashfunction(std::to_string(server_details.serverid())));
-        ClientContext context_split;
         if(client_stub_[successor_server_details.serverid()] == NULL) connect_with_peer(successor_server_details);
         splitrequest.set_id(server_details.serverid());
         s = client_stub_[successor_server_details.serverid()]->SplitDB(&context_split, splitrequest, &splitreply);
@@ -598,7 +647,8 @@ int main(int argc, char** argv) {
             std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
         }
         print_ring();
-    } else if (server_details.serverid() == MASTER_ID) {
+    } else {
+        init_p2p_server();
         // Create server path if it doesn't exist
         DIR* dir = opendir(getServerDir(server_details.serverid()).c_str());
         if (ENOENT == errno) {
@@ -607,20 +657,13 @@ int main(int argc, char** argv) {
         insert_server_entry(server_details.serverid(), server_details.ipaddr());
     }
 
-    std::cout << "Set server id as " << server_details.serverid() << std::endl;
-    this_node_address = getP2PServerAddr(server_details);
-    cur_node_wifs_address = getWifsServerAddr(server_details);
-
-    std::thread p2p_server(run_p2p_server);
-    
     ClientContext context_init;
     if(!isMaster ) {
-        std::cout<<"HELLOOOO"<<std::endl;
         s = client_stub_[MASTER_ID]->InitializeNewServer(&context_init, idreply, &hbreply);
         std::thread watch(watch_for_master);
         watch.detach();
     }
-
+    cur_node_wifs_address = getWifsServerAddr(server_details);
     // spin off level db server locally
     leveldb::Options options;
     options.create_if_missing = true;
