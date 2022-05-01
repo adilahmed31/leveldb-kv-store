@@ -16,6 +16,7 @@ extern "C" {
 
     int do_get(char* key, char* val) {
         auto it = server_map.lower_bound(somehashfunction(std::string(key)));
+        if(it == server_map.end()) it = server_map.begin();
         if(options.wifsclient[it->second.serverid()] == NULL) init(it->second);
         int rc = options.wifsclient[it->second.serverid()]->wifs_GET(key, val);
         return rc;
@@ -23,6 +24,7 @@ extern "C" {
 
     int do_put(char* key, char* val) {
         auto it = server_map.lower_bound(somehashfunction(std::string(key)));
+        if(it == server_map.end()) it = server_map.begin();
         if(options.wifsclient[it->second.serverid()] == NULL) init(it->second);
         int rc = options.wifsclient[it->second.serverid()]->wifs_PUT(key, val);
         return rc;
