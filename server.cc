@@ -96,6 +96,9 @@ auto then = std::chrono::system_clock::now();
 std::condition_variable cv;
 
 leveldb::DB* db;
+leveldb::WriteBatch global_write_batch;
+int write_batch_counter = 0;
+sem_t mutex_write_batch;
 
 void do_heartbeat(wifs::ServerDetails heartbeat_server_details);
 void heartbeat_helper(wifs::ServerDetails heartbeat_server_details, int max_retries);
@@ -185,6 +188,7 @@ int merge_ldb(int failed_server_id){
     //write to batch
         writebatch.Put(iter->key(), iter->value());
         deletebatch.Delete(iter->key());
+        break;
     }
     db->Write(w,&writebatch);
     std::cout << "Wrote entries from DB of server " <<failed_server_id<<std::endl;
@@ -268,13 +272,40 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         std::cout<<"got put call from peer \n";
         leveldb::WriteOptions write_options;
         write_options.sync = false;
-        leveldb::Status s = db->Put(write_options, request->key().c_str(), request->val().c_str());
-        reply->set_status(s.ok() ? wifs::PutRes_Status_PASS : wifs::PutRes_Status_FAIL);
+        int batch_size;
+        if (config.mode() == p2p::ServerConfig_Mode_WRITE){
+            batch_size = config.num_batch();
+        }
+        else{
+            batch_size = 1;
+        }
+        sem_wait(&mutex_write_batch); //post semaphore
+        global_write_batch.Put(request->key(), request->val().c_str());
+
+        if(write_batch_counter >= batch_size - 1){
+            leveldb::Status s = db->Write(write_options, &global_write_batch);
+            global_write_batch.Clear(); //post semaphore
+            write_batch_counter = 0;
+            reply->set_status(s.ok() ? wifs::PutRes_Status_PASS : wifs::PutRes_Status_FAIL);
+        }
+        else{
+            write_batch_counter++;
+            reply->set_status(wifs::PutRes_Status_PASS);
+        }
+        sem_post(&mutex_write_batch);
+        
         return grpc::Status::OK;
     }
 
     grpc::Status p2p_GET(ServerContext* context, const wifs::GetReq* request, wifs::GetRes* reply) override {
         std::cout<<"got get call from peer \n";
+        leveldb::WriteOptions write_options;
+        sem_wait(&mutex_write_batch);
+        db->Write(write_options, &global_write_batch);
+        global_write_batch.Clear(); //post semaphore
+        write_batch_counter = 0;
+        sem_post(&mutex_write_batch);
+        
         std::string val = "";
         leveldb::Status s = db->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
         reply->set_status(s.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
@@ -352,7 +383,21 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
 
 class WifsServiceImplementation final : public WIFS::Service {
     grpc::Status wifs_PUT(ServerContext* context, const wifs::PutReq* request, wifs::PutRes* reply) override {
-        wifs::ServerDetails dest_server_details = get_dest_server_details(request->key());
+        std::string hash_key;
+        int batch_size;
+        if (config.mode() == p2p::ServerConfig_Mode_READ){
+            hash_key = request->key().substr(0, std::min((int)config.prefix_length(), (int)(request->key().length())));
+            batch_size = 1;
+        }
+        else if (config.mode() == p2p::ServerConfig_Mode_WRITE){
+            batch_size = config.num_batch();
+            hash_key = request->key();
+        }
+        else{
+            batch_size = 1;
+            hash_key = request->key();
+        }
+        wifs::ServerDetails dest_server_details = get_dest_server_details(hash_key);
         int dest_server_id = dest_server_details.serverid();
         if(dest_server_id != server_details.serverid()) {
             std::cout<<"sending put to server "<<dest_server_id<<"\n";
@@ -374,14 +419,34 @@ class WifsServiceImplementation final : public WIFS::Service {
         }
         leveldb::WriteOptions write_options;
         write_options.sync = false;
-        leveldb::Status s = db->Put(write_options, request->key().c_str(), request->val().c_str());
-        reply->set_status(s.ok() ? wifs::PutRes_Status_PASS : wifs::PutRes_Status_FAIL);
+        sem_wait(&mutex_write_batch); //post semaphore
+        global_write_batch.Put(request->key(), request->val().c_str());
+
+        if(write_batch_counter >= batch_size - 1){
+            leveldb::Status s = db->Write(write_options, &global_write_batch);
+            global_write_batch.Clear(); //post semaphore
+            write_batch_counter = 0;
+            reply->set_status(s.ok() ? wifs::PutRes_Status_PASS : wifs::PutRes_Status_FAIL);
+        }
+        else{
+            write_batch_counter++;
+            reply->set_status(wifs::PutRes_Status_PASS);
+        }
+        sem_post(&mutex_write_batch);
+        
         populate_hash_server_map(reply->mutable_hash_server_map());
         return grpc::Status::OK;
     }
 
     grpc::Status wifs_GET(ServerContext* context, const wifs::GetReq* request, wifs::GetRes* reply) override {
-        wifs::ServerDetails dest_server_details = get_dest_server_details(request->key());
+        std::string hash_key;
+        if (config.mode() == p2p::ServerConfig_Mode_READ){
+            hash_key = request->key().substr(0, config.prefix_length());
+        }
+        else{
+            hash_key = request->key();
+        }
+        wifs::ServerDetails dest_server_details = get_dest_server_details(hash_key);
         int dest_server_id = dest_server_details.serverid();
         if(dest_server_id != server_details.serverid()) {
             std::cout<<"sending get to server "<<dest_server_details.serverid()<<"\n";
@@ -401,7 +466,12 @@ class WifsServiceImplementation final : public WIFS::Service {
 
             return grpc::Status::OK;
         }
-
+        leveldb::WriteOptions write_options;
+        sem_wait(&mutex_write_batch);
+        db->Write(write_options, &global_write_batch);
+        global_write_batch.Clear(); //post semaphore
+        write_batch_counter = 0;
+        sem_post(&mutex_write_batch);
         std::string val = "";
         leveldb::Status s = db->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
         reply->set_status(s.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
@@ -637,7 +707,8 @@ int main(int argc, char** argv) {
     grpc::Status s = client_stub_[MASTER_ID]->Ping(&context_ping, hbrequest, &hbreply);
     std::cout << MASTER_ID << s.ok() << std::endl;
     p2p::ServerInit idreply;
-    
+    sem_init(&mutex_write_batch, 0, 1);
+
     if(s.ok()) {
         std::cout<<"Server initing, MASTER_ID =  "<<MASTER_ID<<std::endl;
         isMaster = 0;

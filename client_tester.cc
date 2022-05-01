@@ -19,8 +19,8 @@ void tester(char* key) {
     if (rc == -1) std::cout << "GET FAIL\n";
     
     // buf[BLOCK_SIZE] = '\0';
-    printf("get all chars - %s\n", buf);
-
+   // printf("get all chars - %s\n", buf);
+    printf("get first char = %c\n",buf[0]);
 }
 
 int main(int argc, char* argv[]) {
