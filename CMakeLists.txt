@@ -93,6 +93,12 @@ target_link_libraries(p2p_grpc_proto
 
 find_library(PTHREAD_LIB  NAMES pthread)
 find_library(LEVELDB_LIB  NAMES leveldb HINTS /usr/local/lib/)
+find_library(ZK_LIB  NAMES conservator-framework HINTS /usr/local/lib/)
+find_library(ZK_LIB_MT_DEPS  NAMES zookeeper_mt HINTS /usr/local/lib/)
+find_library(CHECK_LIB  NAMES check)
+
+include_directories(/usr/local/include/zookeeper)
+include_directories(/usr/local/include/conservator)
 
 # client
 add_library(client SHARED "client.cc")
@@ -119,7 +125,11 @@ target_link_libraries(server
   ${_GRPC_GRPCPP}
   ${_PROTOBUF_LIBPROTOBUF}
   ${LEVELDB_LIB}
-  custom_fs)
+  custom_fs
+  ${ZK_LIB}
+  ${ZK_LIB_MT_DEPS}
+  ${CHECK_LIB}
+  )
 
 # client manual, easy for manual testing. spin up server and then client
 add_executable(client_tester "client_tester.cc")
