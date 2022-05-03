@@ -49,6 +49,11 @@
 
 #include "custom_fs.cc"
 
+#include <conservator/ConservatorFrameworkFactory.h>
+#include <conservator/ConservatorFramework.h>
+#include <conservator/ExistsBuilder.h>
+#include <check.h>
+
 using grpc::Server;
 using grpc::ServerBuilder;
 using grpc::ServerContext;
@@ -77,7 +82,10 @@ char root_path[MAX_PATH_LENGTH];
 
 wifs::ServerDetails server_details;
 
-int last_server_id = 0; //This is to be used only by first server currently.
+bool isMaster = false;
+unique_ptr<ConservatorFramework> framework;
+sem_t mutex_allot_server_id;
+
 int timestamp = 0; 
 
 int ring_id = 0;
@@ -214,7 +222,13 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     }
 
     grpc::Status AllotServerId(ServerContext* context, const p2p::HeartBeat* request, p2p::ServerInit* reply) {
-        reply->set_id(++last_server_id);
+        sem_wait(&mutex_allot_server_id);
+        int next_poss_server_id = atoi(framework->getData()->forPath("/next_poss_server_id").c_str());
+        framework->deleteNode()->deletingChildren()->forPath("/next_poss_server_id");
+        framework->create()->forPath("/next_poss_server_id", (char *) std::to_string(next_poss_server_id + 1).c_str());
+        sem_post(&mutex_allot_server_id);
+
+        reply->set_id(next_poss_server_id);
         //get ip address
         std::string ipmsg = context->peer().c_str();
         reply->set_ipaddr(parse_ipmsg(ipmsg));
@@ -507,6 +521,25 @@ void do_heartbeat(wifs::ServerDetails hb_server_details) {
     hb.detach();
 }
 
+void find_master_server() {
+    int ret = framework->create()->forPath("/master", (char *) std::to_string(server_details.serverid()).c_str());
+    if (ret == ZNODEEXISTS) {
+        // file exists
+        MASTER_ID = atoi(framework->getData()->forPath("/master").c_str());
+        std::cout<<"----MASTER ID----"<<MASTER_ID<<std::endl;
+        return;
+    }
+
+    MASTER_ID = server_details.serverid();
+    isMaster = true;
+    std::cout<<"I AM THE MASTER\n";
+    // will go through only the first time
+    ret = framework->create()->forPath("/next_poss_server_id", (char *) "1");
+    if (ret == ZNODEEXISTS) {
+        std::cout<<"next_poss_server_id exists, dind't overwrite\n";
+    } else std::cout<<"creating next_poss_server_id\n";
+}
+
 void watch_for_master() {
     while(MASTER_ID != server_details.serverid()) {
         auto now = std::chrono::system_clock::now();
@@ -514,60 +547,27 @@ void watch_for_master() {
         std::cout<<"Time elapsed between latest ping from master till now = "<<diff.count()<<std::endl;
         if(diff.count() > 5) {
             std::cout<<"----FINDING NEW MASTER----"<<std::endl;
-            //TODO: can use to connect to master, kind of like how bigtable master does using Chubby. (figure out and handle locks maybe?)
-            int next_master_id = INT_MAX;
-            for(auto it = server_map.begin(); it != server_map.end(); it++) {
-                if(it->second.serverid() == MASTER_ID) {
-                    server_map.erase(it->first);
-                    break;
-                }
-            }
-
-            for(auto it = server_map.begin(); it != server_map.end(); it++) {
-                if(it->second.serverid() != MASTER_ID) {
-                    next_master_id = std::min(next_master_id, it->second.serverid());
-                }
-            }
-    
-            MASTER_ID = next_master_id;
-            std::cout<<"Next master id = "<<std::to_string(MASTER_ID)<<std::endl;
-            std::ofstream file;
-            file.open(master_file.c_str());
-            file << std::to_string(MASTER_ID) << std::endl;
-            then = std::chrono::system_clock::now();
-            file.close();
-            if(server_details.serverid() == MASTER_ID) {
-                std::cout<<"In if\n";
-                for(auto it = server_map.begin(); it != server_map.end(); it++) {
-                    if(it->second.serverid() != MASTER_ID)
-                        do_heartbeat(it->second);
-                }
-            }
+            find_master_server();
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
     }
-}
-
-void find_master_server() {
-    master_file = getHomeDir() + "/.master"; 
-    FILE *file = fopen(master_file.c_str(), "r");
-    if (file) {
-        fclose(file);
-        std::ifstream t(master_file.c_str());
-        std::stringstream buffer;
-        buffer << t.rdbuf();
-        
-        MASTER_ID = stoi(buffer.str());
-        // std::cout<<"INIT MASTER = "<<MASTER_ID<<std::endl;
-    } else {
-        MASTER_ID = 0;
-    } 
-    std::cout<<"----MASTER ID----"<<MASTER_ID<<std::endl;
+    // now that you are the master start heartbeats with everybody
+    for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
+        if(it->second.serverid() == server_details.serverid()) continue;
+        do_heartbeat(it->second);
+    }
 }
 
 void sigintHandler(int sig_num)
 {
     std::cerr << "----CLEAN SHUTDOWN----\n";
+
+    if(isMaster) {
+        // delete master file in zk
+        framework->deleteNode()->deletingChildren()->forPath("/master");
+    }
+    framework->close();
+
     delete db;
     std::exit(0);
 
@@ -580,9 +580,21 @@ void init_p2p_server() {
     p2p_server.detach();
 }
 
+void init_zk_connection() {
+    // clientid_t zk_client;
+    // zk_client.client_id = client_id;
+    // strcpy(zk_client.passwd, "lol");
+
+    ConservatorFrameworkFactory factory = ConservatorFrameworkFactory();
+    framework = factory.newClient("127.0.0.1:2181");
+    framework->start();
+}
+
 int main(int argc, char** argv) {
     //Ctrl + C handler
     signal(SIGINT, sigintHandler);
+    sem_init(&mutex_allot_server_id, 0, 1);
+    init_zk_connection();
     /*
     Servers will be assigned (p2p,wifs) port numbers as (50060 + id, 50070+id), where id is incremented per server init.
     First server id = 0 and this is the server the client talks to, for now (master/load balancer + server). 
@@ -601,15 +613,13 @@ int main(int argc, char** argv) {
 
     ClientContext context_ping;
     p2p::HeartBeat hbrequest, hbreply;
-    // TODO: not sure if needed, maybe useful later?
-    int isMaster = 1;
     grpc::Status s = client_stub_[MASTER_ID]->Ping(&context_ping, hbrequest, &hbreply);
     std::cout << MASTER_ID << s.ok() << std::endl;
     p2p::ServerInit idreply;
     
     if(s.ok()) {
         std::cout<<"Server initing, MASTER_ID =  "<<MASTER_ID<<std::endl;
-        isMaster = 0;
+        isMaster = false;
         ClientContext context;
         s = client_stub_[MASTER_ID]->AllotServerId(&context, hbrequest, &idreply);
         server_details.set_serverid(idreply.id());
