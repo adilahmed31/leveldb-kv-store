@@ -9,12 +9,17 @@ static struct options {
     int show_help;
 } options;
 
+void populate_tmp_master_server_details(wifs::ServerDetails &master_details) {
+    master_details.set_serverid(0);
+    char arr[500];
+    gethostname(arr, 500);
+    master_details.set_ipaddr(arr);
+}
+
 void init_tmp_master(){
     // needs to know master 
-    std::string tmp_master_ip = "node-2.g13-levels.advosuwmadison-pg0.wisc.cloudlab.us";
     wifs::ServerDetails master_details;
-    master_details.set_serverid(0);
-    master_details.set_ipaddr(tmp_master_ip);
+    populate_tmp_master_server_details(master_details);
     server_map[somehashfunction(getP2PServerAddr(master_details))] = master_details;
 }
 

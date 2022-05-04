@@ -78,6 +78,8 @@ using p2p::ServerInit;
 using p2p::StatusRes;
 using p2p::SplitReq;
 
+std::string zk_server_addr = "127.0.0.1:2181";
+
 char root_path[MAX_PATH_LENGTH];
 
 wifs::ServerDetails server_details;
@@ -609,11 +611,16 @@ void init_zk_connection() {
     // strcpy(zk_client.passwd, "lol");
 
     ConservatorFrameworkFactory factory = ConservatorFrameworkFactory();
-    framework = factory.newClient("127.0.0.1:2181");
+    framework = factory.newClient(zk_server_addr.c_str());
     framework->start();
 }
 
 int main(int argc, char** argv) {
+    if(argc > 1) {
+        // overwrite zk server address with the passed in value
+        zk_server_addr = std::string(argv[1]);
+    }
+
     //Ctrl + C handler
     signal(SIGINT, sigintHandler);
     sem_init(&mutex_allot_server_id, 0, 1);
