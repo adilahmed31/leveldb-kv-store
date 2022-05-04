@@ -34,8 +34,10 @@ sudo make install
 cd ~
 git clone https://github.com/rjenkins/conservator.git
 cd conservator/
-# change 'set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")' in CMakeLists.txt to 
-# 'set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -DTHREADED -DHAVE_OPENSSL_H")'
+
+//change 'set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")' in CMakeLists.txt to 
+//set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -DTHREADED -DHAVE_OPENSSL_H")'
+
 mkdir build
 cd build/
 cmake ..
