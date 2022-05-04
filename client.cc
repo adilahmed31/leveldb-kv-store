@@ -11,11 +11,11 @@ static struct options {
 
 void init_tmp_master(){
     // needs to know master 
-    std::string tmp_master_ip = "localhost";
+    std::string tmp_master_ip = "node-2.g13-levels.advosuwmadison-pg0.wisc.cloudlab.us";
     wifs::ServerDetails master_details;
     master_details.set_serverid(0);
     master_details.set_ipaddr(tmp_master_ip);
-    server_map[somehashfunction(tmp_master_ip)] = master_details;
+    server_map[somehashfunction(getP2PServerAddr(master_details))] = master_details;
 }
 
 extern "C" {

@@ -25,13 +25,6 @@ void tester(char* key) {
 
 int main(int argc, char* argv[]) {
 
-    // needs to know master 
-    std::string tmp_master_ip = "localhost";
-    wifs::ServerDetails master_details;
-    master_details.set_serverid(0);
-    master_details.set_ipaddr(tmp_master_ip);
-    server_map[somehashfunction(tmp_master_ip)] = master_details;
-
     char* key = (char*)"4";
     tester(key);
     key = (char*)"400";
