@@ -615,16 +615,62 @@ void init_zk_connection() {
     framework->start();
 }
 
-int main(int argc, char** argv) {
-    if(argc > 1) {
-        // overwrite zk server address with the passed in value
-        zk_server_addr = std::string(argv[1]);
+p2p::ServerInit get_cur_server_details_and_initialize_map(){
+    p2p::ServerInit idreply;
+    wifs::ServerDetails master_server_details;
+    master_server_details.set_ipaddr(MASTER_IP);
+    master_server_details.set_serverid(MASTER_ID);
+    connect_with_peer(master_server_details);
+    std::cout<<"Server initing, MASTER_ID =  "<<MASTER_ID<<std::endl;
+    isMaster = false;
+    ClientContext context;
+    p2p::HeartBeat hbrequest;
+    grpc::Status s = client_stub_[MASTER_ID]->AllotServerId(&context, hbrequest, &idreply);
+    server_details.set_serverid(idreply.id());
+    idreply.set_ipaddr(server_details.ipaddr());
+
+    server_map = std::map<long, wifs::ServerDetails>(idreply.servermap().begin(),idreply.servermap().end());
+    std::cout << "servermap initialized" << std::endl;
+    return idreply;
+}
+
+void init_server_dir(){
+    DIR* dir = opendir(getServerDir(server_details.serverid()).c_str());
+    if (ENOENT == errno) {
+        mkdir(getServerDir(server_details.serverid()).c_str(), 0777);
     }
 
-    //Ctrl + C handler
-    signal(SIGINT, sigintHandler);
-    sem_init(&mutex_allot_server_id, 0, 1);
-    init_zk_connection();
+}
+
+void ping_master_wrapper(p2p::ServerInit idreply){
+    ClientContext context1;
+    p2p::HeartBeat hbreply1;
+    grpc::Status s1 = client_stub_[MASTER_ID]->PingMaster(&context1, idreply, &hbreply1);
+}
+
+void split_db_wrapper(){
+    ClientContext context_split;
+    p2p::SplitReq splitrequest;
+    p2p::StatusRes splitreply;
+
+    splitrequest.set_range_end(somehashfunction(getP2PServerAddr(server_details)));
+    if(client_stub_[successor_server_details.serverid()] == NULL) connect_with_peer(successor_server_details);
+    splitrequest.set_id(server_details.serverid());
+    grpc::Status s = client_stub_[successor_server_details.serverid()]->SplitDB(&context_split, splitrequest, &splitreply);
+    if (splitreply.status() == p2p::StatusRes_Status_FAIL){
+        std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
+    }
+}
+
+void init_server_and_watch_master(p2p::ServerInit idreply){
+    ClientContext context_init;
+    p2p::HeartBeat hbreply;
+    grpc::Status s = client_stub_[MASTER_ID]->InitializeNewServer(&context_init, idreply, &hbreply);
+    std::thread watch(watch_for_master);
+    watch.detach();
+}
+
+int main(int argc, char** argv) {
     /*
     Servers will be assigned (p2p,wifs) port numbers as (50060 + id, 50070+id), where id is incremented per server init.
     First server id = 0 and this is the server the client talks to, for now (master/load balancer + server). 
@@ -634,73 +680,53 @@ int main(int argc, char** argv) {
     First server adds new server to it's list and redirects future requests. 
     */
 
+    if(argc > 1) {
+        // overwrite zk server address with the passed in value
+        zk_server_addr = std::string(argv[1]);
+    }
+
+    //Ctrl + C handler
+    signal(SIGINT, sigintHandler);
+    sem_init(&mutex_allot_server_id, 0, 1);
+    init_zk_connection();
+
     // Check if master is active or not. If file exists, then there's master, else, no master, so create file and become master
     populate_cur_node_server_details();
     
     find_master_server(); 
-    p2p::ServerInit idreply;
+    
     if(!isMaster) {
-        wifs::ServerDetails master_server_details;
-        master_server_details.set_ipaddr(MASTER_IP);
-        master_server_details.set_serverid(MASTER_ID);
-        connect_with_peer(master_server_details);
-        std::cout<<"Server initing, MASTER_ID =  "<<MASTER_ID<<std::endl;
-        isMaster = false;
-        ClientContext context;
-        p2p::HeartBeat hbrequest;
-        grpc::Status s = client_stub_[MASTER_ID]->AllotServerId(&context, hbrequest, &idreply);
-        server_details.set_serverid(idreply.id());
-        idreply.set_ipaddr(server_details.ipaddr());
+        // get current server details and the server map from the master
+        p2p::ServerInit idreply = get_cur_server_details_and_initialize_map();
 
         // Create server path if it doesn't exist, should be done before calling split/merge db
         // and after getting server id from master.
-        DIR* dir = opendir(getServerDir(server_details.serverid()).c_str());
-        if (ENOENT == errno) {
-            mkdir(getServerDir(server_details.serverid()).c_str(), 0777);
-        }
+        init_server_dir();
 
-        server_map = std::map<long, wifs::ServerDetails>(idreply.servermap().begin(),idreply.servermap().end());
-        std::cout << "servermap initialized" << std::endl;
-
+        //start p2p server
         init_p2p_server();
 
         // add sync grpc call letting the master know it's there
-        ClientContext context1;
-        p2p::HeartBeat hbreply1;
-        grpc::Status s1 = client_stub_[MASTER_ID]->PingMaster(&context1, idreply, &hbreply1);
+        ping_master_wrapper(idreply);
 
         //update_ring_id(); //TODO: this function will be deprecated
         successor_server_details = find_successor(server_details);
-        //Contact successor and transfer keys belonging to current node
-        ClientContext context_split;
-        p2p::SplitReq splitrequest;
-        p2p::StatusRes splitreply;
 
-        splitrequest.set_range_end(somehashfunction(getP2PServerAddr(server_details)));
-        if(client_stub_[successor_server_details.serverid()] == NULL) connect_with_peer(successor_server_details);
-        splitrequest.set_id(server_details.serverid());
-        s = client_stub_[successor_server_details.serverid()]->SplitDB(&context_split, splitrequest, &splitreply);
-        if (splitreply.status() == p2p::StatusRes_Status_FAIL){
-            std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
-        }
+        //Contact successor and transfer keys belonging to current node
+        split_db_wrapper();
+
         print_ring();
+
+        //initialize new server with the master and keep checking if master is alive
+        init_server_and_watch_master(idreply);
+
     } else {
         init_p2p_server();
         // Create server path if it doesn't exist
-        DIR* dir = opendir(getServerDir(server_details.serverid()).c_str());
-        if (ENOENT == errno) {
-            mkdir(getServerDir(server_details.serverid()).c_str(), 0777);
-        }
+        init_server_dir();
         insert_server_entry(server_details);
     }
 
-    ClientContext context_init;
-    if(!isMaster ) {
-        p2p::HeartBeat hbreply;
-        grpc::Status s = client_stub_[MASTER_ID]->InitializeNewServer(&context_init, idreply, &hbreply);
-        std::thread watch(watch_for_master);
-        watch.detach();
-    }
     cur_node_wifs_address = getWifsServerAddr(server_details);
     // spin off level db server locally
     leveldb::Options options;
