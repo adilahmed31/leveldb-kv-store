@@ -20,7 +20,7 @@ using wifs::ServerDetails;
 #define HEARTBEAT_TIMER 1000
 #define RINGLENGTH 255
 
-#define MASTER_IP "localhost"
+std::string MASTER_IP = "";
 
 //limiting max servers to use static array for client_stub - can be depreciated if client_stub need not be reused
 #define MAX_NUM_SERVERS 100 
@@ -48,7 +48,7 @@ std::string getP2PServerAddr(wifs::ServerDetails sd){
 }
 
 std::string getWifsServerAddr(wifs::ServerDetails sd){
-        return sd.ipaddr() + ":"+ std::to_string(50070 + sd.serverid());
+        return sd.ipaddr() + ":"+ std::to_string(50170 + sd.serverid());
 }
 
 //Consistent hashing - modify/replace hash function if required
@@ -67,15 +67,12 @@ unsigned int somehashfunction(std::string s) {
 //Save list of servers in ascending order of ranges of keys handled
 std::map<long,wifs::ServerDetails> server_map;
 
-void insert_server_entry(int server_id, std::string server_ipaddr){
-    wifs::ServerDetails sd;
-    sd.set_serverid(server_id);
-    sd.set_ipaddr(server_ipaddr);
-    server_map[somehashfunction(std::to_string(server_id))] = sd;
+void insert_server_entry(wifs::ServerDetails sd){
+    server_map[somehashfunction(getP2PServerAddr(sd))] = sd;
 }
 
-void remove_server_entry(int server_id){
-    server_map.erase(somehashfunction(std::to_string(server_id)));
+void remove_server_entry(wifs::ServerDetails sd){
+    server_map.erase(somehashfunction(getP2PServerAddr(sd)));
 }
 
 void print_ring(){
