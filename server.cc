@@ -103,6 +103,8 @@ std::condition_variable cv;
 
 leveldb::DB* db;
 
+std::string server_config_str = "0,0,0";
+
 void do_heartbeat(wifs::ServerDetails heartbeat_server_details);
 void heartbeat_helper(wifs::ServerDetails heartbeat_server_details, int max_retries);
 void heartbeat(wifs::ServerDetails heartbeat_server_id);
@@ -540,6 +542,11 @@ void do_heartbeat(wifs::ServerDetails hb_server_details) {
 }
 
 void find_master_server() {
+    if(framework->checkExists()->forPath("/config") == ZOK) {
+        server_config_str = framework->getData()->forPath("/config");
+        std::cout<<"currently running server under config "<<server_config_str<<"\n";
+    }
+
     int ret = framework->create()->forPath("/master", getP2PServerAddr(server_details).c_str());
     if (ret == ZNODEEXISTS) {
         // file exists
