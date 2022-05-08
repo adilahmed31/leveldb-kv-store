@@ -343,6 +343,9 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
 
     grpc::Status p2p_DELETE(ServerContext* context, const wifs::DeleteReq* request, wifs::DeleteRes* reply) override {
         std::cout<<"got delete call from peer \n";
+
+        update_pending_writes();
+
         leveldb::Status s = db->Delete(leveldb::WriteOptions(), request->key().c_str());
         reply->set_status(s.ok() ? wifs::DeleteRes_Status_PASS : wifs::DeleteRes_Status_FAIL);
         return grpc::Status::OK;
@@ -454,7 +457,7 @@ class WifsServiceImplementation final : public WIFS::Service {
 
     grpc::Status wifs_GET(ServerContext* context, const wifs::GetReq* request, wifs::GetRes* reply) override {
         std::string hash_key = config.mode() == p2p::ServerConfig_Mode_READ ? 
-                request->key().substr(0, config.prefix_length()) : 
+                request->key().substr(0, std::min((int) config.prefix_length(), (int) (request->key().length()))) : 
                 request->key();
 
         wifs::ServerDetails dest_server_details = get_dest_server_details(hash_key);
@@ -490,7 +493,11 @@ class WifsServiceImplementation final : public WIFS::Service {
     }
 
     grpc::Status wifs_DELETE(ServerContext* context, const wifs::DeleteReq* request, wifs::DeleteRes* reply) override {
-        wifs::ServerDetails dest_server_details = get_dest_server_details(request->key());
+        std::string hash_key = config.mode() == p2p::ServerConfig_Mode_READ ? 
+                request->key().substr(0, std::min((int) config.prefix_length(), (int) (request->key().length()))) : 
+                request->key();
+
+        wifs::ServerDetails dest_server_details = get_dest_server_details(hash_key);
         int dest_server_id = dest_server_details.serverid();
         if(dest_server_id != server_details.serverid()) {
             std::cout<<"sending delete to server "<<dest_server_details.serverid()<<"\n";
@@ -510,6 +517,8 @@ class WifsServiceImplementation final : public WIFS::Service {
 
             return grpc::Status::OK;
         }
+
+        update_pending_writes();
 
         leveldb::Status s = db->Delete(leveldb::WriteOptions(), request->key().c_str());
         reply->set_status(s.ok() ? wifs::DeleteRes_Status_PASS : wifs::DeleteRes_Status_FAIL);
