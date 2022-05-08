@@ -20,7 +20,11 @@ using wifs::GetRes;
 using wifs::WIFS;
 using wifs::PutReq;
 using wifs::PutRes;
+using wifs::DeleteReq;
+using wifs::DeleteRes;
 using wifs::ServerDetails;
+using wifs::DeleteReq;
+using wifs::DeleteRes;
 
 #define BLOCK_SIZE 100000
 
@@ -60,6 +64,19 @@ class WifsClient {
         server_map = std::map<long,wifs::ServerDetails>(reply.hash_server_map().begin(), reply.hash_server_map().end());
         return status.ok() ? 0 : -1;
     }
+
+    int wifs_DELETE(char* key){
+        ClientContext context;
+        DeleteReq request;
+        DeleteRes reply;
+        request.set_key(std::string(key));
+        
+        Status status = stub_->wifs_DELETE(&context, request, & reply);
+        print_map(reply.hash_server_map());
+        server_map = std::map<long,wifs::ServerDetails>(reply.hash_server_map().begin(), reply.hash_server_map().end());
+        return status.ok() ? 0 : -1;
+    }
+    
 
    private:
     std::unique_ptr<WIFS::Stub> stub_;

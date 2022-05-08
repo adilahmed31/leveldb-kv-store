@@ -49,4 +49,15 @@ extern "C" {
         int rc = options.wifsclient[it->second.serverid()]->wifs_PUT(key, val);
         return rc;
     }
+
+    int do_delete(char* key) {
+        if (server_map.empty()){
+            init_tmp_master();
+        }
+        auto it = server_map.lower_bound(somehashfunction(std::string(key)));
+        if (it == server_map.end()) it = server_map.begin();
+        if (options.wifsclient[it->second.serverid()] == NULL) init(it->second);
+        int rc = options.wifsclient[it->second.serverid()]->wifs_DELETE(key);
+        return rc;
+    }
 }

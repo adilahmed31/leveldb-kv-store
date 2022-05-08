@@ -7,6 +7,21 @@ package wifs;
 service WIFS {
   rpc wifs_GET(GetReq) returns (GetRes){}
   rpc wifs_PUT(PutReq) returns (PutRes){}
+  rpc wifs_DELETE(DeleteReq) returns (DeleteRes){}
+}
+
+message DeleteReq{
+  string key = 1;
+}
+
+message DeleteRes{
+  enum Status{
+    FAIL = 0;
+    PASS = 1;
+  }
+  Status status = 1;
+
+  map<int64, ServerDetails> hash_server_map = 2;
 }
 
 message ServerDetails{

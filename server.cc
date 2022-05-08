@@ -302,6 +302,13 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         return grpc::Status::OK;
     }
 
+    grpc::Status p2p_DELETE(ServerContext* context, const wifs::DeleteReq* request, wifs::DeleteRes* reply) override {
+        std::cout<<"got delete call from peer \n";
+        leveldb::Status s = db->Delete(leveldb::WriteOptions(), request->key().c_str());
+        reply->set_status(s.ok() ? wifs::DeleteRes_Status_PASS : wifs::DeleteRes_Status_FAIL);
+        return grpc::Status::OK;
+    }
+
     //If this node is the predecessor of the newly joined node, commit the in-memory buffer to disk.
     //Don't need this with new implementation (TODO (Adil): Remove when current impl works)
     // grpc::Status CompactMemTable(ServerContext* context, const p2p::HeartBeat* request, p2p::StatusRes* reply){
@@ -431,6 +438,34 @@ class WifsServiceImplementation final : public WIFS::Service {
         leveldb::Status s = db->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
         reply->set_status(s.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
         reply->set_val(val);
+        populate_hash_server_map(reply->mutable_hash_server_map());
+        return grpc::Status::OK;
+    }
+
+    grpc::Status wifs_DELETE(ServerContext* context, const wifs::DeleteReq* request, wifs::DeleteRes* reply) override {
+        wifs::ServerDetails dest_server_details = get_dest_server_details(request->key());
+        int dest_server_id = dest_server_details.serverid();
+        if(dest_server_id != server_details.serverid()) {
+            std::cout<<"sending delete to server "<<dest_server_details.serverid()<<"\n";
+            if(client_stub_[dest_server_id] == NULL) connect_with_peer(dest_server_details);
+            ClientContext context;
+            grpc::Status status = client_stub_[dest_server_id]->p2p_DELETE(&context, *request, reply);
+            if(!status.ok()) {
+                connect_with_peer(dest_server_details);
+                ClientContext context;
+                status = client_stub_[dest_server_id]->p2p_DELETE(&context, *request, reply);
+            }
+            //else declare server failed - re assign keys
+            reply->set_status(status.ok() ? wifs::DeleteRes_Status_PASS : wifs::DeleteRes_Status_FAIL);
+
+            //populate the hash_server_map accordingly 
+            populate_hash_server_map(reply->mutable_hash_server_map());
+
+            return grpc::Status::OK;
+        }
+
+        leveldb::Status s = db->Delete(leveldb::WriteOptions(), request->key().c_str());
+        reply->set_status(s.ok() ? wifs::DeleteRes_Status_PASS : wifs::DeleteRes_Status_FAIL);
         populate_hash_server_map(reply->mutable_hash_server_map());
         return grpc::Status::OK;
     }
