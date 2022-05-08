@@ -77,12 +77,16 @@ using p2p::PeerToPeer;
 using p2p::ServerInit;
 using p2p::StatusRes;
 using p2p::SplitReq;
+using p2p::ServerConfig;
 
 std::string zk_server_addr = "127.0.0.1:2181";
 
 char root_path[MAX_PATH_LENGTH];
 
 wifs::ServerDetails server_details;
+
+// changes to support write modes
+p2p::ServerConfig config;
 
 bool isMaster = false;
 unique_ptr<ConservatorFramework> framework;
@@ -102,6 +106,9 @@ auto then = std::chrono::system_clock::now();
 std::condition_variable cv;
 
 leveldb::DB* db;
+leveldb::WriteBatch global_write_batch;
+int write_batch_counter = 0;
+sem_t mutex_write_batch;
 
 std::string server_config_str = "0,0,0";
 
@@ -216,6 +223,36 @@ std::string parse_ipmsg(std::string ipmsg){
     return ipmsg.substr(start_index, end_index-start_index);
 }
 
+// helper function to execute local put call.
+void execute_local_put(const wifs::PutReq* request, wifs::PutRes* reply) {
+    leveldb::WriteOptions write_options;
+    write_options.sync = false;
+    
+    int batch_size = config.mode() == p2p::ServerConfig_Mode_WRITE ? config.num_batch() : 1;
+    
+    sem_wait(&mutex_write_batch); // acquire the lock
+    global_write_batch.Put(request->key(), request->val().c_str());
+    if(write_batch_counter >= batch_size - 1) {
+        leveldb::Status s = db->Write(write_options, &global_write_batch);
+        global_write_batch.Clear(); // release the lock
+        write_batch_counter = 0;
+        reply->set_status(s.ok() ? wifs::PutRes_Status_PASS : wifs::PutRes_Status_FAIL);
+    } else {
+        write_batch_counter++;
+        reply->set_status(wifs::PutRes_Status_PASS);
+    }
+    sem_post(&mutex_write_batch);
+}
+
+void update_pending_writes() {
+    leveldb::WriteOptions write_options;
+    sem_wait(&mutex_write_batch);
+    db->Write(write_options, &global_write_batch);
+    global_write_batch.Clear();
+    write_batch_counter = 0;
+    sem_post(&mutex_write_batch);
+}
+
 class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     grpc::Status Ping(ServerContext* context, const p2p::HeartBeat* request, p2p::HeartBeat* reply) {
         std::cout << "Ping!" <<std::endl;
@@ -288,15 +325,15 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
 
     grpc::Status p2p_PUT(ServerContext* context, const wifs::PutReq* request, wifs::PutRes* reply) override {
         std::cout<<"got put call from peer \n";
-        leveldb::WriteOptions write_options;
-        write_options.sync = false;
-        leveldb::Status s = db->Put(write_options, request->key().c_str(), request->val().c_str());
-        reply->set_status(s.ok() ? wifs::PutRes_Status_PASS : wifs::PutRes_Status_FAIL);
+        execute_local_put(request, reply);
         return grpc::Status::OK;
     }
 
     grpc::Status p2p_GET(ServerContext* context, const wifs::GetReq* request, wifs::GetRes* reply) override {
         std::cout<<"got get call from peer \n";
+
+        update_pending_writes();
+
         std::string val = "";
         leveldb::Status s = db->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
         reply->set_status(s.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
@@ -379,7 +416,11 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
 
 class WifsServiceImplementation final : public WIFS::Service {
     grpc::Status wifs_PUT(ServerContext* context, const wifs::PutReq* request, wifs::PutRes* reply) override {
-        wifs::ServerDetails dest_server_details = get_dest_server_details(request->key());
+        std::string hash_key = config.mode() == p2p::ServerConfig_Mode_READ ? 
+                request->key().substr(0, std::min((int) config.prefix_length(), (int) (request->key().length()))) : 
+                request->key();
+
+        wifs::ServerDetails dest_server_details = get_dest_server_details(hash_key);
         int dest_server_id = dest_server_details.serverid();
         if(dest_server_id != server_details.serverid()) {
             std::cout<<"sending put to server "<<dest_server_id<<"\n";
@@ -399,16 +440,18 @@ class WifsServiceImplementation final : public WIFS::Service {
 
             return grpc::Status::OK;
         }
-        leveldb::WriteOptions write_options;
-        write_options.sync = false;
-        leveldb::Status s = db->Put(write_options, request->key().c_str(), request->val().c_str());
-        reply->set_status(s.ok() ? wifs::PutRes_Status_PASS : wifs::PutRes_Status_FAIL);
+        execute_local_put(request, reply);
         populate_hash_server_map(reply->mutable_hash_server_map());
         return grpc::Status::OK;
     }
 
     grpc::Status wifs_GET(ServerContext* context, const wifs::GetReq* request, wifs::GetRes* reply) override {
-        wifs::ServerDetails dest_server_details = get_dest_server_details(request->key());
+        std::string hash_key = config.mode() == p2p::ServerConfig_Mode_READ ? 
+                request->key().substr(0, config.prefix_length()) : 
+                request->key();
+
+        wifs::ServerDetails dest_server_details = get_dest_server_details(hash_key);
+
         int dest_server_id = dest_server_details.serverid();
         if(dest_server_id != server_details.serverid()) {
             std::cout<<"sending get to server "<<dest_server_details.serverid()<<"\n";
@@ -428,6 +471,8 @@ class WifsServiceImplementation final : public WIFS::Service {
 
             return grpc::Status::OK;
         }
+
+        update_pending_writes();
 
         std::string val = "";
         leveldb::Status s = db->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
@@ -677,6 +722,29 @@ void init_server_and_watch_master(p2p::ServerInit idreply){
     watch.detach();
 }
 
+std::vector<std::string> parse_string(std::string s, std::string delimiter) {
+    std::vector<std::string> ans;
+    size_t pos = 0;
+    std::string token;
+    while ((pos = s.find(delimiter)) != std::string::npos) {
+        token = s.substr(0, pos);
+        ans.push_back(token);
+        std::cout<<token<<"\n";
+        s.erase(0, pos + delimiter.length());
+    }
+    ans.push_back(s);
+    return ans;
+}
+
+void get_config() {
+    std::vector<std::string> values = parse_string(server_config_str, ",");
+    
+    config.set_mode(static_cast<p2p::ServerConfig_Mode>(stoi(values[0])));
+    config.set_num_batch(stoi(values[1]));
+    config.set_prefix_length(stoi(values[2]));
+    std::cout << config.mode() <<"  " <<config.num_batch() << "  " <<config.prefix_length() << std::endl;
+}
+
 int main(int argc, char** argv) {
     /*
     Servers will be assigned (p2p,wifs) port numbers as (50060 + id, 50070+id), where id is incremented per server init.
@@ -695,12 +763,14 @@ int main(int argc, char** argv) {
     //Ctrl + C handler
     signal(SIGINT, sigintHandler);
     sem_init(&mutex_allot_server_id, 0, 1);
+    sem_init(&mutex_write_batch, 0, 1);
     init_zk_connection();
 
     // Check if master is active or not. If file exists, then there's master, else, no master, so create file and become master
     populate_cur_node_server_details();
     
     find_master_server(); 
+    get_config();
     
     if(!isMaster) {
         // get current server details and the server map from the master

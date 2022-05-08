@@ -13,6 +13,7 @@
 #include <sys/types.h>
 #include <pwd.h>
 #include <iostream>
+#include <fstream>
 #include "wifs.grpc.pb.h"
 using wifs::ServerDetails;
 

@@ -17,6 +17,25 @@ service PeerToPeer {
     rpc SplitDB(SplitReq) returns (StatusRes){}
 }
 
+message ServerConfig{
+    enum Mode {
+        DEFAULT = 0;
+        WRITE = 1; //batch writes at server before committing
+        READ = 2; //enable locality for storing keys
+    }
+    enum State {
+        // can be used when doing the catch up work after failure
+        INIT = 0;
+
+        // when in normal operation
+        READY = 1;
+    }
+    State state = 4;
+    Mode mode = 1;
+    int32 num_batch = 2; // number of writes to batch at each node
+    int32 prefix_length = 3; //length of prefix to hash for maintaining locality
+}
+
 message HeartBeat {
     enum State {
         // can be used when doing the catch up work after failure
