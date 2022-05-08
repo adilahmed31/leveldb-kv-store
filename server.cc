@@ -26,6 +26,7 @@
 #include <streambuf>
 #include <string>
 #include <algorithm>
+#include <dirent.h>
 
 #include "commonheaders.h"
 #include "p2p.grpc.pb.h"
@@ -735,7 +736,7 @@ void init_server_dir(){
     if (ENOENT == errno) {
         mkdir(getServerDir(server_details.serverid()).c_str(), 0777);
     }
-
+    closedir(dir);
 }
 
 void ping_master_wrapper(p2p::ServerInit idreply){
@@ -787,6 +788,27 @@ void get_config() {
     config.set_num_batch(stoi(values[1]));
     config.set_prefix_length(stoi(values[2]));
     std::cout << config.mode() <<"  " <<config.num_batch() << "  " <<config.prefix_length() << std::endl;
+}
+
+void collect_db() {
+    DIR *dir;
+    struct dirent *ent;
+    if ((dir = opendir (getHomeDir().c_str())) != NULL) {
+        std::cout << dir << std::endl;
+        while ((ent = readdir(dir)) != NULL) {
+            std::string serverdb = ent->d_name;
+            if (serverdb.rfind(".server", 0) ==0){
+                std::cout << serverdb.back() << std::endl;
+                wifs::ServerDetails sd;
+                // std::string serverid = serverdb.back();
+                sd.set_serverid(serverdb.back() - '0');
+                //not setting ip address - is that ok?
+                if (sd.serverid()!=0) merge_ldb(sd);
+                //not checking rc
+            }
+        }
+        closedir (dir);
+    }
 }
 
 int main(int argc, char** argv) {
@@ -843,6 +865,7 @@ int main(int argc, char** argv) {
 
     } else {
         init_p2p_server();
+
         // Create server path if it doesn't exist
         init_server_dir();
         insert_server_entry(server_details);
@@ -862,6 +885,8 @@ int main(int argc, char** argv) {
     std::cout << getServerDir(server_details.serverid()) <<std::endl;
     leveldb::Status status = leveldb::DB::Open(options, getServerDir(server_details.serverid()).c_str(), &db);
     assert(status.ok());
+
+    if(isMaster) collect_db();      //collect all existing leveldb dbs and put in server0's db
 
     run_wifs_server();   
     return 0;
