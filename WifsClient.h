@@ -23,8 +23,6 @@ using wifs::PutRes;
 using wifs::DeleteReq;
 using wifs::DeleteRes;
 using wifs::ServerDetails;
-using wifs::DeleteReq;
-using wifs::DeleteRes;
 
 #define BLOCK_SIZE 100000
 
