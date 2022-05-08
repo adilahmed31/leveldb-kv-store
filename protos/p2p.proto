@@ -9,6 +9,7 @@ service PeerToPeer {
     rpc PingMaster(ServerInit) returns (HeartBeat) {}
     rpc p2p_GET(wifs.GetReq) returns (wifs.GetRes){}
     rpc p2p_PUT(wifs.PutReq) returns (wifs.PutRes){}
+    rpc p2p_DELETE(wifs.DeleteReq) returns (wifs.DeleteRes) {}
     rpc AllotServerId(HeartBeat) returns (ServerInit){}
     rpc BroadcastServerId(ServerInit) returns (HeartBeat){}
     rpc InitializeNewServer(ServerInit) returns (HeartBeat){}
