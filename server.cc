@@ -124,6 +124,13 @@ auto getServerIteratorInMap(wifs::ServerDetails target_server_details) -> std::m
     return it;
 }
 
+std::string filter_wildcard(std::string search_range){
+    std::string delimiter = "*";
+    std::string start_key = search_range.substr(0, search_range.find(delimiter));
+    return start_key;
+}
+
+
 wifs::ServerDetails get_dest_server_details(std::string key) {
     // compute the hash for the given key, find the corresponding server and return the id.
     long key_hash = somehashfunction(key);
@@ -335,9 +342,22 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         update_pending_writes();
 
         std::string val = "";
-        leveldb::Status s = db->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
-        reply->set_status(s.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
-        reply->set_val(val);
+        if (request->mode() == 1){
+            leveldb::ReadOptions options;
+            options.fill_cache = false;
+            leveldb::Iterator* it = db->NewIterator(options);
+            leveldb::Slice start_key = filter_wildcard(request->key().c_str());
+            for (it->Seek(start_key); it->Valid(); it->Next()) {
+                wifs::KVPair* kv_pair = reply->add_kvpairs();
+                kv_pair->set_key(it->key().ToString());
+                kv_pair->set_value(it->value().ToString());
+            }
+        }
+        else{
+            leveldb::Status s = db->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
+            reply->set_status(s.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
+            reply->set_val(val);
+        }
         return grpc::Status::OK;
     }
 
@@ -485,9 +505,23 @@ class WifsServiceImplementation final : public WIFS::Service {
         update_pending_writes();
 
         std::string val = "";
-        leveldb::Status s = db->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
-        reply->set_status(s.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
-        reply->set_val(val);
+        if (request->mode() == 1){
+            //enter batch read logic here
+            leveldb::ReadOptions options;
+            options.fill_cache = false;
+            leveldb::Iterator* it = db->NewIterator(options);
+            leveldb::Slice start_key = filter_wildcard(request->key().c_str());
+            for (it->Seek(start_key); it->Valid(); it->Next()) {
+                wifs::KVPair* kv_pair = reply->add_kvpairs();
+                kv_pair->set_key(it->key().ToString());
+                kv_pair->set_value(it->value().ToString());
+            }
+        }
+        else{
+            leveldb::Status s = db->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
+            reply->set_status(s.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
+            reply->set_val(val);
+        }
         populate_hash_server_map(reply->mutable_hash_server_map());
         return grpc::Status::OK;
     }
