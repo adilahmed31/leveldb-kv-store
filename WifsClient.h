@@ -45,8 +45,11 @@ class WifsClient {
         request.set_mode(1);
         Status status = stub_->wifs_GET(&context, request, &reply);
         std::vector<wifs::KVPair> batch_results(reply.kvpairs().begin(), reply.kvpairs().end());
+        std::cout << "batch size" << batch_results.size() << std::endl;
         batch_read = batch_results;
-        print_map(reply.hash_server_map());
+        std::cout << "batch_read" << batch_read.size() << std::endl;
+        // print_map(reply.hash_server_map());
+        return status.ok() ? 0 : -1;
     }
 
     int wifs_GET(char* key, char* val) {

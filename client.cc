@@ -39,14 +39,15 @@ extern "C" {
         return rc;
     }
 
-    int do_getRange(char* key, std::vector<wifs::KVPair> batch_read) { 
+    int do_getRange(char* key, std::vector<wifs::KVPair>* batch_read) { 
         if (server_map.empty()){
             init_tmp_master();
         }
         auto it = server_map.lower_bound(somehashfunction(std::string(key)));
         if(it == server_map.end()) it = server_map.begin();
         if(options.wifsclient[it->second.serverid()] == NULL) init(it->second);
-        int rc = options.wifsclient[it->second.serverid()]->wifs_GETRANGE(key, batch_read);
+        int rc = options.wifsclient[it->second.serverid()]->wifs_GETRANGE(key, *batch_read);
+        std::cout << "size(batch_read) "  << batch_read->size() << std::endl;
 
         return rc;
     }

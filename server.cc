@@ -348,9 +348,13 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
             leveldb::Iterator* it = db->NewIterator(options);
             leveldb::Slice start_key = filter_wildcard(request->key().c_str());
             for (it->Seek(start_key); it->Valid(); it->Next()) {
+                if(it->key().ToString().substr(0,config.prefix_length()) != start_key ) break;
+                std::cout << "Found key: " << it->key().ToString() << std::endl;
                 wifs::KVPair* kv_pair = reply->add_kvpairs();
                 kv_pair->set_key(it->key().ToString());
                 kv_pair->set_value(it->value().ToString());
+                std::cout << "kv pairs size: " << reply->kvpairs_size() << std::endl;
+
             }
         }
         else{
@@ -512,9 +516,12 @@ class WifsServiceImplementation final : public WIFS::Service {
             leveldb::Iterator* it = db->NewIterator(options);
             leveldb::Slice start_key = filter_wildcard(request->key().c_str());
             for (it->Seek(start_key); it->Valid(); it->Next()) {
+                if(it->key().ToString().substr(0,config.prefix_length()) != start_key ) break;
+                std::cout << "Found key: " << it->key().ToString() << std::endl;
                 wifs::KVPair* kv_pair = reply->add_kvpairs();
                 kv_pair->set_key(it->key().ToString());
                 kv_pair->set_value(it->value().ToString());
+                std::cout << "kv pairs size: " << reply->kvpairs_size() << std::endl;
             }
         }
         else{
