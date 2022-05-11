@@ -36,12 +36,27 @@ class WifsClient {
         }
     }
 
+    int wifs_GETRANGE(char* key, std::vector<wifs::KVPair> &batch_read){
+        //range read client side code
+        ClientContext context;
+        GetReq request;
+        GetRes reply;
+        request.set_key(std::string(key));
+        request.set_mode(1);
+        Status status = stub_->wifs_GET(&context, request, &reply);
+        std::vector<wifs::KVPair> batch_results(reply.kvpairs().begin(), reply.kvpairs().end());
+        batch_read = batch_results;
+        // print_map(reply.hash_server_map());
+        return status.ok() ? 0 : -1;
+    }
+
     int wifs_GET(char* key, char* val) {
 
         ClientContext context;
         GetReq request;
         GetRes reply;
         request.set_key(std::string(key));
+        request.set_mode(0);
         Status status = stub_->wifs_GET(&context, request, &reply);
         print_map(reply.hash_server_map());
         server_map = std::map<long,wifs::ServerDetails>(reply.hash_server_map().begin(), reply.hash_server_map().end());
