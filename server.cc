@@ -273,8 +273,8 @@ void get_as_per_mode(const wifs::GetReq* request, wifs::GetRes* reply){
             kv_pair->set_key(it->key().ToString());
             kv_pair->set_value(it->value().ToString());
             std::cout << "kv pairs size: " << reply->kvpairs_size() << std::endl;
-
         }
+        reply->set_status(wifs::GetRes_Status_PASS); 
     }
     else{
         std::string val = "";
