@@ -32,7 +32,12 @@ int single_server = 0;
 std::string master_file;
 int MASTER_ID = 0;
 
+std::string efs_mount_path = "";
+
 std::string getHomeDir() {
+    // if a mount path is specified, just use that
+    if(efs_mount_path != "") return efs_mount_path;
+
     const char *homedir;
     if ((homedir = getenv("HOME")) == NULL) {
         homedir = getpwuid(getuid())->pw_dir;

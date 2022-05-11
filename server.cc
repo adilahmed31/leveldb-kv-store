@@ -821,8 +821,13 @@ void collect_db() {
 }
 
 int main(int argc, char** argv) {
+    // Usage './server <zk_server_address> <efs_mount_path>'
+    // efs_mount_path shouldn't have a trailing /
+    // Default values : zk_server_address - 127.0.0.1:2181
+    //                  efs_mount_path - ~
+
     /*
-    Servers will be assigned (p2p,wifs) port numbers as (50060 + id, 50070+id), where id is incremented per server init.
+    Servers will be assigned (p2p,wifs) port numbers as (50060 + id, 50170+id), where id is incremented per server init.
     First server id = 0 and this is the server the client talks to, for now (master/load balancer + server). 
     First server maintains the list of servers and key ranges.
     When a new server (except first server) comes up, it will contact it's future successor and ask for transfer of keys. (flush)
@@ -833,6 +838,10 @@ int main(int argc, char** argv) {
     if(argc > 1) {
         // overwrite zk server address with the passed in value
         zk_server_addr = std::string(argv[1]);
+    }
+
+    if(argc > 2) {
+        efs_mount_path = std::string(argv[2]);
     }
 
     //Ctrl + C handler
