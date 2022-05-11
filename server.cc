@@ -26,6 +26,7 @@
 #include <streambuf>
 #include <string>
 #include <algorithm>
+#include <dirent.h>
 
 #include "commonheaders.h"
 #include "p2p.grpc.pb.h"
@@ -48,6 +49,11 @@
 #include <leveldb/table.h> 
 
 #include "custom_fs.cc"
+
+#include <conservator/ConservatorFrameworkFactory.h>
+#include <conservator/ConservatorFramework.h>
+#include <conservator/ExistsBuilder.h>
+#include <check.h>
 
 using grpc::Server;
 using grpc::ServerBuilder;
@@ -73,11 +79,16 @@ using p2p::ServerInit;
 using p2p::StatusRes;
 using p2p::SplitReq;
 
+std::string zk_server_addr = "127.0.0.1:2181";
+
 char root_path[MAX_PATH_LENGTH];
 
 wifs::ServerDetails server_details;
 
-int last_server_id = 0; //This is to be used only by first server currently.
+bool isMaster = false;
+unique_ptr<ConservatorFramework> framework;
+sem_t mutex_allot_server_id;
+
 int timestamp = 0; 
 
 int ring_id = 0;
@@ -99,8 +110,8 @@ void heartbeat(wifs::ServerDetails heartbeat_server_id);
 
 void broadcast_new_server_to_all(const p2p::ServerInit);
 
-auto getServerIteratorInMap(int target_server_id) -> std::map<long,wifs::ServerDetails>::iterator{
-    long hash_val = somehashfunction(std::to_string(target_server_id));
+auto getServerIteratorInMap(wifs::ServerDetails target_server_details) -> std::map<long,wifs::ServerDetails>::iterator{
+    long hash_val = somehashfunction(getP2PServerAddr(target_server_details));
     auto it = server_map.find(hash_val);
     return it;
 }
@@ -115,11 +126,11 @@ wifs::ServerDetails get_dest_server_details(std::string key) {
 }
 
 //Return the successor of a node on the ring.
-wifs::ServerDetails find_successor(int pred_server_id){
-    int hash_val = somehashfunction(std::to_string(pred_server_id));
+wifs::ServerDetails find_successor(wifs::ServerDetails pred_server){
+    int hash_val = somehashfunction(getP2PServerAddr(pred_server));
     auto it = server_map.upper_bound(hash_val);
     wifs::ServerDetails successor_id = (it == server_map.end() ? server_map.begin()->second : it->second);
-    std::cout<<"Successor ID of server " << pred_server_id << " is: " << successor_id.serverid() << std::endl;
+    std::cout<<"Successor ID of server " << pred_server.serverid() << " is: " << successor_id.serverid() << std::endl;
     return successor_id;
 }
 
@@ -145,6 +156,13 @@ void get(void) {
     return;
 }
 
+void populate_cur_node_server_details() {
+    server_details.set_serverid(0);
+    char arr[500];
+    gethostname(arr, 500);
+    server_details.set_ipaddr(arr);
+}
+
 void populate_hash_server_map(google::protobuf::Map<long, wifs::ServerDetails>* map) {
     *map = google::protobuf::Map<long, wifs::ServerDetails>(server_map.begin(), server_map.end());
 }
@@ -152,7 +170,7 @@ void populate_hash_server_map(google::protobuf::Map<long, wifs::ServerDetails>* 
 // Server IDs don't correspond to ring positions. Update ring position to a separate variable
 void update_ring_id(){
     //Find Ring ID and successor ID
-    auto it = getServerIteratorInMap(server_details.serverid());
+    auto it = getServerIteratorInMap(server_details);
     ring_id = distance(server_map.begin(), it);
     auto it2 = std::next(it,1);
     successor_server_details = (it2 == server_map.end() ? server_map.begin()->second : it2->second);
@@ -160,7 +178,8 @@ void update_ring_id(){
 }
 
 //merges DB of server ID provided as an argument into the current node's DB
-int merge_ldb(int failed_server_id){
+int merge_ldb(wifs::ServerDetails failed_server_details){
+    int failed_server_id = failed_server_details.serverid();
     std::cout << "Merging DB of " <<failed_server_id << " into DB of node "<< server_details.serverid() <<std::endl;
     leveldb::Options options;
     leveldb::DB* db_merge;
@@ -214,11 +233,14 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     }
 
     grpc::Status AllotServerId(ServerContext* context, const p2p::HeartBeat* request, p2p::ServerInit* reply) {
-        reply->set_id(++last_server_id);
-        //get ip address
-        std::string ipmsg = context->peer().c_str();
-        reply->set_ipaddr(parse_ipmsg(ipmsg));
-        std::cout <<"peer ip = " << reply->ipaddr() << std::endl;
+        sem_wait(&mutex_allot_server_id);
+        int next_poss_server_id = atoi(framework->getData()->forPath("/next_poss_server_id").c_str());
+        framework->deleteNode()->deletingChildren()->forPath("/next_poss_server_id");
+        framework->create()->forPath("/next_poss_server_id", (char *) std::to_string(next_poss_server_id + 1).c_str());
+        sem_post(&mutex_allot_server_id);
+
+        reply->set_id(next_poss_server_id);
+        std::cout <<"peer id = " << next_poss_server_id << std::endl;
 
         populate_hash_server_map(reply->mutable_servermap());
         return grpc::Status::OK;
@@ -229,7 +251,11 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         std::cout<<"HELLOOOO"<<std::endl;
         p2p::ServerInit request_copy = *request;
         
-        insert_server_entry(request->id(), request->ipaddr());
+        wifs::ServerDetails sd;
+        sd.set_serverid(request->id());
+        sd.set_ipaddr(request->ipaddr());
+        insert_server_entry(sd);
+        
         request_copy.set_action(p2p::ServerInit_Action_INSERT);
         broadcast_new_server_to_all(request_copy); //broadcast to the new server also, mode 0 for adding server ID
         
@@ -242,15 +268,17 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
 
     grpc::Status BroadcastServerId(ServerContext* context, const p2p::ServerInit* request, p2p::HeartBeat* reply) {
         //Add new serverId to server list
+        wifs::ServerDetails sd;
+        sd.set_serverid(request->id());
+        sd.set_ipaddr(request->ipaddr());
         if(request->action() == p2p::ServerInit_Action_INSERT){
-            insert_server_entry(request->id(),request->ipaddr());
+            insert_server_entry(sd);
             std::cout << "new server added: " << request->id() << std::endl;
 
         }
         else{
-            remove_server_entry(request->id());
+            remove_server_entry(sd);
             std::cout << "server removed: " << request->id() << std::endl;
-
         }
         update_ring_id();
         print_ring();
@@ -310,7 +338,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         }
         
         //find range end for current server
-        int this_range_end = getServerIteratorInMap(server_details.serverid())->first;
+        int this_range_end = getServerIteratorInMap(server_details)->first;
         
         //Iterate over old DB and create batches for operations
         for(iter->SeekToFirst(); iter->Valid(); iter->Next()){
@@ -332,7 +360,12 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     //The batched write is applied to the successor's DB
     grpc::Status MergeDB(ServerContext* context, const p2p::ServerInit* request, p2p::StatusRes* reply){
         std::cout << "Master asked this server to merge with Server "<< request->id() <<std::endl;
-        int rc = merge_ldb(request->id());
+        
+        wifs::ServerDetails sd;
+        sd.set_serverid(request->id());
+        sd.set_ipaddr(request->ipaddr());
+        
+        int rc = merge_ldb(sd);
         if(rc < 0){
             std::cout << "merge_ldb returned -1. Error opening DB of failed node" <<std::endl;
             reply->set_status(p2p::StatusRes_Status_FAIL);
@@ -460,16 +493,17 @@ void heartbeat_helper(wifs::ServerDetails hb_server_details, int max_retries) {
     }
 }
 
-p2p::ServerInit merge_db_helper(int heartbeat_server_id) {
-    wifs::ServerDetails failed_server_successor_details = find_successor(heartbeat_server_id);
+p2p::ServerInit merge_db_helper(wifs::ServerDetails heartbeat_server_details) {
+    wifs::ServerDetails failed_server_successor_details = find_successor(heartbeat_server_details);
     int failed_server_successor_id = failed_server_successor_details.serverid();
     p2p::ServerInit mergerequest;
-    mergerequest.set_id(heartbeat_server_id);  
+    mergerequest.set_id(heartbeat_server_details.serverid());  
+    mergerequest.set_ipaddr(heartbeat_server_details.ipaddr());
        
     //if master is the successor of the failed node, perform the merge locally without an RPC call
     if(server_details.serverid() == failed_server_successor_id){
-        std::cout << "Master itself is the successor of "<< heartbeat_server_id <<std::endl;
-        merge_ldb(heartbeat_server_id);
+        std::cout << "Master itself is the successor of "<< heartbeat_server_details.serverid() <<std::endl;
+        merge_ldb(heartbeat_server_details);
     }
     //send a merge RPC to the successor of the failed node
     else{
@@ -489,12 +523,11 @@ p2p::ServerInit merge_db_helper(int heartbeat_server_id) {
 }
 
 void heartbeat(wifs::ServerDetails hb_server_details){
-    int heartbeat_server_id = hb_server_details.serverid();
     heartbeat_helper(hb_server_details, 5);
     // heartbeat failed after 5 retries, so now merge DBs
-    p2p::ServerInit mergerequest = merge_db_helper(heartbeat_server_id);
+    p2p::ServerInit mergerequest = merge_db_helper(hb_server_details);
     // remove failed server from server_map
-    remove_server_entry(heartbeat_server_id);
+    remove_server_entry(hb_server_details);
     //Update server maps of all servers to remove entry
     mergerequest.set_action(p2p::ServerInit_Action_DELETE);
     broadcast_new_server_to_all(mergerequest); //mode 1 is for deleting entries
@@ -507,6 +540,32 @@ void do_heartbeat(wifs::ServerDetails hb_server_details) {
     hb.detach();
 }
 
+void find_master_server() {
+    int ret = framework->create()->forPath("/master", getP2PServerAddr(server_details).c_str());
+    if (ret == ZNODEEXISTS) {
+        // file exists
+        isMaster = false;
+        std::string master_server_details_str = framework->getData()->forPath("/master");
+        int delim_pos = (int) master_server_details_str.find(":");
+        MASTER_IP = master_server_details_str.substr(0, delim_pos);
+        MASTER_ID = atoi(master_server_details_str.substr(delim_pos+1, 5).c_str()) - 50060;
+        std::cout<<"----MASTER_ID----"<<MASTER_ID<<std::endl;
+        std::cout<<"----MASTER_IP----"<<MASTER_IP<<std::endl;
+        return;
+    }
+
+    isMaster = true;
+    MASTER_ID = server_details.serverid();
+    MASTER_IP = server_details.ipaddr();
+    
+    std::cout<<"I AM THE MASTER\n";
+    // will go through only the first time
+    ret = framework->create()->forPath("/next_poss_server_id", (char *) "1");
+    if (ret == ZNODEEXISTS) {
+        std::cout<<"next_poss_server_id exists, dind't overwrite\n";
+    } else std::cout<<"creating next_poss_server_id\n";
+}
+
 void watch_for_master() {
     while(MASTER_ID != server_details.serverid()) {
         auto now = std::chrono::system_clock::now();
@@ -514,60 +573,27 @@ void watch_for_master() {
         std::cout<<"Time elapsed between latest ping from master till now = "<<diff.count()<<std::endl;
         if(diff.count() > 5) {
             std::cout<<"----FINDING NEW MASTER----"<<std::endl;
-            //TODO: can use to connect to master, kind of like how bigtable master does using Chubby. (figure out and handle locks maybe?)
-            int next_master_id = INT_MAX;
-            for(auto it = server_map.begin(); it != server_map.end(); it++) {
-                if(it->second.serverid() == MASTER_ID) {
-                    server_map.erase(it->first);
-                    break;
-                }
-            }
-
-            for(auto it = server_map.begin(); it != server_map.end(); it++) {
-                if(it->second.serverid() != MASTER_ID) {
-                    next_master_id = std::min(next_master_id, it->second.serverid());
-                }
-            }
-    
-            MASTER_ID = next_master_id;
-            std::cout<<"Next master id = "<<std::to_string(MASTER_ID)<<std::endl;
-            std::ofstream file;
-            file.open(master_file.c_str());
-            file << std::to_string(MASTER_ID) << std::endl;
-            then = std::chrono::system_clock::now();
-            file.close();
-            if(server_details.serverid() == MASTER_ID) {
-                std::cout<<"In if\n";
-                for(auto it = server_map.begin(); it != server_map.end(); it++) {
-                    if(it->second.serverid() != MASTER_ID)
-                        do_heartbeat(it->second);
-                }
-            }
+            find_master_server();
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
     }
-}
-
-void find_master_server() {
-    master_file = getHomeDir() + "/.master"; 
-    FILE *file = fopen(master_file.c_str(), "r");
-    if (file) {
-        fclose(file);
-        std::ifstream t(master_file.c_str());
-        std::stringstream buffer;
-        buffer << t.rdbuf();
-        
-        MASTER_ID = stoi(buffer.str());
-        // std::cout<<"INIT MASTER = "<<MASTER_ID<<std::endl;
-    } else {
-        MASTER_ID = 0;
-    } 
-    std::cout<<"----MASTER ID----"<<MASTER_ID<<std::endl;
+    // now that you are the master start heartbeats with everybody
+    for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
+        if(it->second.serverid() == server_details.serverid()) continue;
+        do_heartbeat(it->second);
+    }
 }
 
 void sigintHandler(int sig_num)
 {
     std::cerr << "----CLEAN SHUTDOWN----\n";
+
+    if(isMaster) {
+        // delete master file in zk
+        framework->deleteNode()->deletingChildren()->forPath("/master");
+    }
+    framework->close();
+
     delete db;
     std::exit(0);
 
@@ -580,9 +606,93 @@ void init_p2p_server() {
     p2p_server.detach();
 }
 
+void init_zk_connection() {
+    // clientid_t zk_client;
+    // zk_client.client_id = client_id;
+    // strcpy(zk_client.passwd, "lol");
+
+    ConservatorFrameworkFactory factory = ConservatorFrameworkFactory();
+    framework = factory.newClient(zk_server_addr.c_str());
+    framework->start();
+}
+
+p2p::ServerInit get_cur_server_details_and_initialize_map(){
+    p2p::ServerInit idreply;
+    wifs::ServerDetails master_server_details;
+    master_server_details.set_ipaddr(MASTER_IP);
+    master_server_details.set_serverid(MASTER_ID);
+    connect_with_peer(master_server_details);
+    std::cout<<"Server initing, MASTER_ID =  "<<MASTER_ID<<std::endl;
+    isMaster = false;
+    ClientContext context;
+    p2p::HeartBeat hbrequest;
+    grpc::Status s = client_stub_[MASTER_ID]->AllotServerId(&context, hbrequest, &idreply);
+    server_details.set_serverid(idreply.id());
+    idreply.set_ipaddr(server_details.ipaddr());
+
+    server_map = std::map<long, wifs::ServerDetails>(idreply.servermap().begin(),idreply.servermap().end());
+    std::cout << "servermap initialized" << std::endl;
+    return idreply;
+}
+
+void init_server_dir(){
+    DIR* dir = opendir(getServerDir(server_details.serverid()).c_str());
+    if (ENOENT == errno) {
+        mkdir(getServerDir(server_details.serverid()).c_str(), 0777);
+    }
+    closedir(dir);
+}
+
+void ping_master_wrapper(p2p::ServerInit idreply){
+    ClientContext context1;
+    p2p::HeartBeat hbreply1;
+    grpc::Status s1 = client_stub_[MASTER_ID]->PingMaster(&context1, idreply, &hbreply1);
+}
+
+void split_db_wrapper(){
+    ClientContext context_split;
+    p2p::SplitReq splitrequest;
+    p2p::StatusRes splitreply;
+
+    splitrequest.set_range_end(somehashfunction(getP2PServerAddr(server_details)));
+    if(client_stub_[successor_server_details.serverid()] == NULL) connect_with_peer(successor_server_details);
+    splitrequest.set_id(server_details.serverid());
+    grpc::Status s = client_stub_[successor_server_details.serverid()]->SplitDB(&context_split, splitrequest, &splitreply);
+    if (splitreply.status() == p2p::StatusRes_Status_FAIL){
+        std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
+    }
+}
+
+void init_server_and_watch_master(p2p::ServerInit idreply){
+    ClientContext context_init;
+    p2p::HeartBeat hbreply;
+    grpc::Status s = client_stub_[MASTER_ID]->InitializeNewServer(&context_init, idreply, &hbreply);
+    std::thread watch(watch_for_master);
+    watch.detach();
+}
+
+void collect_db(){
+    DIR *dir;
+    struct dirent *ent;
+    if ((dir = opendir (getHomeDir().c_str())) != NULL) {
+        std::cout << dir << std::endl;
+        while ((ent = readdir(dir)) != NULL) {
+            std::string serverdb = ent->d_name;
+            if (serverdb.rfind(".server", 0) ==0){
+                std::cout << serverdb.back() << std::endl;
+                wifs::ServerDetails sd;
+                // std::string serverid = serverdb.back();
+                sd.set_serverid(serverdb.back() - '0');
+                //not setting ip address - is that ok?
+                if (sd.serverid()!=0) merge_ldb(sd);
+                //not checking rc
+            }
+        }
+        closedir (dir);
+    }
+}
+
 int main(int argc, char** argv) {
-    //Ctrl + C handler
-    signal(SIGINT, sigintHandler);
     /*
     Servers will be assigned (p2p,wifs) port numbers as (50060 + id, 50070+id), where id is incremented per server init.
     First server id = 0 and this is the server the client talks to, for now (master/load balancer + server). 
@@ -592,77 +702,54 @@ int main(int argc, char** argv) {
     First server adds new server to it's list and redirects future requests. 
     */
 
-    // Check if master is active or not. If file exists, then there's master, else, no master, so create file and become master
-    find_master_server(); 
-    //Check if firstserver exists
-    server_details.set_serverid(MASTER_ID);
-    server_details.set_ipaddr(MASTER_IP);
-    connect_with_peer(server_details);
+    if(argc > 1) {
+        // overwrite zk server address with the passed in value
+        zk_server_addr = std::string(argv[1]);
+    }
 
-    ClientContext context_ping;
-    p2p::HeartBeat hbrequest, hbreply;
-    // TODO: not sure if needed, maybe useful later?
-    int isMaster = 1;
-    grpc::Status s = client_stub_[MASTER_ID]->Ping(&context_ping, hbrequest, &hbreply);
-    std::cout << MASTER_ID << s.ok() << std::endl;
-    p2p::ServerInit idreply;
+    //Ctrl + C handler
+    signal(SIGINT, sigintHandler);
+    sem_init(&mutex_allot_server_id, 0, 1);
+    init_zk_connection();
+
+    // Check if master is active or not. If file exists, then there's master, else, no master, so create file and become master
+    populate_cur_node_server_details();
     
-    if(s.ok()) {
-        std::cout<<"Server initing, MASTER_ID =  "<<MASTER_ID<<std::endl;
-        isMaster = 0;
-        ClientContext context;
-        s = client_stub_[MASTER_ID]->AllotServerId(&context, hbrequest, &idreply);
-        server_details.set_serverid(idreply.id());
-        server_details.set_ipaddr(idreply.ipaddr());
-        
+    find_master_server(); 
+    
+    if(!isMaster) {
+        // get current server details and the server map from the master
+        p2p::ServerInit idreply = get_cur_server_details_and_initialize_map();
+
         // Create server path if it doesn't exist, should be done before calling split/merge db
         // and after getting server id from master.
-        DIR* dir = opendir(getServerDir(server_details.serverid()).c_str());
-        if (ENOENT == errno) {
-            mkdir(getServerDir(server_details.serverid()).c_str(), 0777);
-        }
+        init_server_dir();
 
-        server_map = std::map<long, wifs::ServerDetails>(idreply.servermap().begin(),idreply.servermap().end());
-        std::cout << "servermap initialized" << std::endl;
-
+        //start p2p server
         init_p2p_server();
 
         // add sync grpc call letting the master know it's there
-        ClientContext context1;
-        p2p::HeartBeat hbreply1;
-        grpc::Status s1 = client_stub_[MASTER_ID]->PingMaster(&context1, idreply, &hbreply1);
+        ping_master_wrapper(idreply);
 
         //update_ring_id(); //TODO: this function will be deprecated
-        successor_server_details = find_successor(server_details.serverid());
-        //Contact successor and transfer keys belonging to current node
-        ClientContext context_split;
-        p2p::SplitReq splitrequest;
-        p2p::StatusRes splitreply;
+        successor_server_details = find_successor(server_details);
 
-        splitrequest.set_range_end(somehashfunction(std::to_string(server_details.serverid())));
-        if(client_stub_[successor_server_details.serverid()] == NULL) connect_with_peer(successor_server_details);
-        splitrequest.set_id(server_details.serverid());
-        s = client_stub_[successor_server_details.serverid()]->SplitDB(&context_split, splitrequest, &splitreply);
-        if (splitreply.status() == p2p::StatusRes_Status_FAIL){
-            std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
-        }
+        //Contact successor and transfer keys belonging to current node
+        split_db_wrapper();
+
         print_ring();
+
+        //initialize new server with the master and keep checking if master is alive
+        init_server_and_watch_master(idreply);
+
     } else {
         init_p2p_server();
+
         // Create server path if it doesn't exist
-        DIR* dir = opendir(getServerDir(server_details.serverid()).c_str());
-        if (ENOENT == errno) {
-            mkdir(getServerDir(server_details.serverid()).c_str(), 0777);
-        }
-        insert_server_entry(server_details.serverid(), server_details.ipaddr());
+        init_server_dir();
+        insert_server_entry(server_details);
     }
 
-    ClientContext context_init;
-    if(!isMaster ) {
-        s = client_stub_[MASTER_ID]->InitializeNewServer(&context_init, idreply, &hbreply);
-        std::thread watch(watch_for_master);
-        watch.detach();
-    }
     cur_node_wifs_address = getWifsServerAddr(server_details);
     // spin off level db server locally
     leveldb::Options options;
@@ -677,6 +764,8 @@ int main(int argc, char** argv) {
     std::cout << getServerDir(server_details.serverid()) <<std::endl;
     leveldb::Status status = leveldb::DB::Open(options, getServerDir(server_details.serverid()).c_str(), &db);
     assert(status.ok());
+
+    if(isMaster) collect_db();      //collect all existing leveldb dbs and put in server0's db
 
     run_wifs_server();   
     return 0;
