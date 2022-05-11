@@ -391,9 +391,18 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         
         //Iterate over old DB and create batches for operations
         for(iter->SeekToFirst(); iter->Valid(); iter->Next()){
-            if ((somehashfunction(iter->key().ToString()) <= request->range_end()) && (somehashfunction(iter->key().ToString()) > this_range_end)){
-                writebatch.Put(iter->key(), iter->value());
-                deletebatch.Delete(iter->key());
+            int cur_key_hash = somehashfunction(iter->key().ToString());
+            if(request->range_end() < this_range_end) {
+                if (cur_key_hash <= request->range_end() || cur_key_hash > this_range_end){
+                    writebatch.Put(iter->key(), iter->value());
+                    deletebatch.Delete(iter->key());
+                }
+            }
+            else {
+                if (cur_key_hash > this_range_end && cur_key_hash <= request->range_end()){
+                    writebatch.Put(iter->key(), iter->value());
+                    deletebatch.Delete(iter->key());
+                }
             }
         }
 
