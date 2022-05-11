@@ -28,7 +28,7 @@ extern "C" {
         options.wifsclient[details.serverid()] = new WifsClient(grpc::CreateChannel(getWifsServerAddr(details), grpc::InsecureChannelCredentials()));
     }
 
-    int do_get(char* key, char* val) {
+    int do_get(char* key, char* val) { //mode 0 for default, 1 for batch reads
         if (server_map.empty()){
             init_tmp_master();
         }
@@ -36,6 +36,17 @@ extern "C" {
         if(it == server_map.end()) it = server_map.begin();
         if(options.wifsclient[it->second.serverid()] == NULL) init(it->second);
         int rc = options.wifsclient[it->second.serverid()]->wifs_GET(key, val);
+        return rc;
+    }
+
+    int do_getRange(char* key, std::vector<wifs::KVPair>* batch_read) { 
+        if (server_map.empty()){
+            init_tmp_master();
+        }
+        auto it = server_map.lower_bound(somehashfunction(std::string(key)));
+        if(it == server_map.end()) it = server_map.begin();
+        if(options.wifsclient[it->second.serverid()] == NULL) init(it->second);
+        int rc = options.wifsclient[it->second.serverid()]->wifs_GETRANGE(key, *batch_read);
         return rc;
     }
 

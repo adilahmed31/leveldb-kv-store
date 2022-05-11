@@ -46,6 +46,7 @@ message PutRes {
 
 message GetReq {
   string key = 1;
+  int32 mode = 2;
 }
 
 message GetRes {
@@ -55,6 +56,11 @@ message GetRes {
   }
   Status status = 1;
   bytes val = 2;
-
   map<int64, ServerDetails> hash_server_map = 3;
+  repeated KVPair kvpairs = 4;
+}
+
+message KVPair {
+  string key = 1;
+  string value = 2;
 }
