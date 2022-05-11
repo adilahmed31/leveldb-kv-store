@@ -47,8 +47,6 @@ extern "C" {
         if(it == server_map.end()) it = server_map.begin();
         if(options.wifsclient[it->second.serverid()] == NULL) init(it->second);
         int rc = options.wifsclient[it->second.serverid()]->wifs_GETRANGE(key, *batch_read);
-        std::cout << "size(batch_read) "  << batch_read->size() << std::endl;
-
         return rc;
     }
 

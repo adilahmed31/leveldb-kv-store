@@ -260,6 +260,30 @@ void update_pending_writes() {
     sem_post(&mutex_write_batch);
 }
 
+void get_as_per_mode(const wifs::GetReq* request, wifs::GetRes* reply){
+    if (request->mode() == 1){
+        leveldb::ReadOptions options;
+        options.fill_cache = false;
+        leveldb::Iterator* it = db->NewIterator(options);
+        leveldb::Slice start_key = filter_wildcard(request->key().c_str());
+        for (it->Seek(start_key); it->Valid(); it->Next()) {
+            if(it->key().ToString().substr(0,config.prefix_length()) != start_key ) break;
+            std::cout << "Found key: " << it->key().ToString() << std::endl;
+            wifs::KVPair* kv_pair = reply->add_kvpairs();
+            kv_pair->set_key(it->key().ToString());
+            kv_pair->set_value(it->value().ToString());
+            std::cout << "kv pairs size: " << reply->kvpairs_size() << std::endl;
+
+        }
+    }
+    else{
+        std::string val = "";
+        leveldb::Status s = db->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
+        reply->set_status(s.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
+        reply->set_val(val);
+    }
+}
+
 class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     grpc::Status Ping(ServerContext* context, const p2p::HeartBeat* request, p2p::HeartBeat* reply) {
         std::cout << "Ping!" <<std::endl;
@@ -338,30 +362,8 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
 
     grpc::Status p2p_GET(ServerContext* context, const wifs::GetReq* request, wifs::GetRes* reply) override {
         std::cout<<"got get call from peer \n";
-
         update_pending_writes();
-
-        std::string val = "";
-        if (request->mode() == 1){
-            leveldb::ReadOptions options;
-            options.fill_cache = false;
-            leveldb::Iterator* it = db->NewIterator(options);
-            leveldb::Slice start_key = filter_wildcard(request->key().c_str());
-            for (it->Seek(start_key); it->Valid(); it->Next()) {
-                if(it->key().ToString().substr(0,config.prefix_length()) != start_key ) break;
-                std::cout << "Found key: " << it->key().ToString() << std::endl;
-                wifs::KVPair* kv_pair = reply->add_kvpairs();
-                kv_pair->set_key(it->key().ToString());
-                kv_pair->set_value(it->value().ToString());
-                std::cout << "kv pairs size: " << reply->kvpairs_size() << std::endl;
-
-            }
-        }
-        else{
-            leveldb::Status s = db->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
-            reply->set_status(s.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
-            reply->set_val(val);
-        }
+        get_as_per_mode(request, reply);
         return grpc::Status::OK;
     }
 
@@ -507,28 +509,7 @@ class WifsServiceImplementation final : public WIFS::Service {
         }
 
         update_pending_writes();
-
-        std::string val = "";
-        if (request->mode() == 1){
-            //enter batch read logic here
-            leveldb::ReadOptions options;
-            options.fill_cache = false;
-            leveldb::Iterator* it = db->NewIterator(options);
-            leveldb::Slice start_key = filter_wildcard(request->key().c_str());
-            for (it->Seek(start_key); it->Valid(); it->Next()) {
-                if(it->key().ToString().substr(0,config.prefix_length()) != start_key ) break;
-                std::cout << "Found key: " << it->key().ToString() << std::endl;
-                wifs::KVPair* kv_pair = reply->add_kvpairs();
-                kv_pair->set_key(it->key().ToString());
-                kv_pair->set_value(it->value().ToString());
-                std::cout << "kv pairs size: " << reply->kvpairs_size() << std::endl;
-            }
-        }
-        else{
-            leveldb::Status s = db->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
-            reply->set_status(s.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
-            reply->set_val(val);
-        }
+        get_as_per_mode(request, reply);
         populate_hash_server_map(reply->mutable_hash_server_map());
         return grpc::Status::OK;
     }
