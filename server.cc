@@ -958,7 +958,7 @@ int main(int argc, char** argv) {
     std::cout << getServerDir(server_details.serverid()) <<std::endl;
     leveldb::Status status = leveldb::DB::Open(options, getServerDir(server_details.serverid()).c_str(), &db);
     if(do_cache){
-        leveldb::Status s_cache = leveldb::DB::Open(options, getCacheDir(), &cache);
+        leveldb::Status s_cache = leveldb::DB::Open(options, getCacheDir(server_details.serverid()).c_str(), &cache);
         if(!s_cache.ok()){
             do_cache = 0;
             std::cout << "Unable to create Cache DB. Caching disabled." <<std::endl;
