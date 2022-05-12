@@ -50,7 +50,7 @@ extern "C" {
         return rc;
     }
 
-    int do_put(char* key, char* val) {
+    int do_put(char* key, const char* val) {
         if (server_map.empty()){
             init_tmp_master();
         }
