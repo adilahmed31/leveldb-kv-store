@@ -16,22 +16,18 @@ void populate_tmp_master_server_details(wifs::ServerDetails &master_details) {
     if(start_server_ip != "") {
         master_details.set_serverid(0);
         master_details.set_ipaddr(start_server_ip);
+        std::cout<<start_server_ip<<"\n";
         return;
     }
 
     master_details.set_serverid(0);
     char arr[500];
     gethostname(arr, 500);
+    std::cout<<arr<<"\n";
     master_details.set_ipaddr(arr);
 }
 
 void init_tmp_master(){
-    if(start_server_ip != "") {
-        wifs::ServerDetails master_details;
-        populate_tmp_master_server_details(master_details);
-        server_map[somehashfunction(start_server_ip)] = master_details;
-        return;
-    }
     // needs to know master 
     wifs::ServerDetails master_details;
     populate_tmp_master_server_details(master_details);
