@@ -5,6 +5,7 @@ import time
 
 import random
 import string
+from itertools import compress
 
 '''
 Test workloads:
@@ -17,10 +18,11 @@ Random reads/writes traverse the key space in random order.
 
 class Workloads(object):
 
-    def __init__(self, client, num_keys, percentage_reads, random = True):
+    def __init__(self, client, num_keys, random = True):
         self.key_size = 16
         self.val_size = 100
         self.client = client
+        self.num_keys = num_keys
         self.kv = self.generate_kv_pairs(num_keys, random)
         
     #Generate random string of size str_length
@@ -44,36 +46,35 @@ class Workloads(object):
         return kv
 
     #One client, puts all keys and values in kv
-    def send_puts(self):
-        time_put = 0
+    def test_write_perc(self, percentage_writes):
+        reads = random.choices([True, False], weights = [100 - percentage_writes, percentage_writes], k=self.num_keys)
+        num_reads = sum(reads)
+        num_writes = self.num_keys - num_reads
+        print("Number of reads: ", num_reads)
+        print("Number of writes: ", num_writes)
+        print(f"Write Percentage: Expected - {1.0*percentage_writes}%, Actual - {100*num_writes/num_keys}%")
+
+        #Put all keys we want to test get on
+        for key in list(compress(self.kv.keys(), reads)):
+            self.client.put(key, self.kv[key])
+
+        #Test now
         start_time = time.time()
         
-        for key in self.kv:
+        for i, key in enumerate(self.kv):
+            if reads[i]:
+                self.client.get(key)
             self.client.put(key, self.kv[key])
         
-        time_put = time.time() - start_time
-        print(f"Time for random puts (single client): {time_put}")
+        time_wl = time.time() - start_time
+        print(f"Time to complete: {time_wl}")
 
-    #One client, gets values for all keys in kv
-    def send_gets(self):
-        time_get = 0
-        start_time = time.time()
-        
-        for key in self.kv:
-            self.client.get(key)
-        
-        time_get = time.time() - start_time
-        print(f"Time for random gets (single client): {time_get}")
 
 if __name__ == "__main__":
-    client = Client()
+    client = Client("c220g1-030604.wisc.cloudlab.us:2181")
     num_keys = 100
 
     test_rand_workload = Workloads(client, num_keys)
-    test_rand_workload.send_puts()
-    test_rand_workload.send_gets()
+    test_rand_workload.test_write_perc(10)
 
-    # test_seq_workload = Workloads(client, num_keys, random=False)
-    # test_seq_workload.send_puts()
-    # test_seq_workload.send_gets()
     
