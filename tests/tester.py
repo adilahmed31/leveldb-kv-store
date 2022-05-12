@@ -20,8 +20,9 @@ class Server():
         #self.server.communicate()
 
 class Client():
-    def __init__(self):
+    def __init__(self, zk_server_ip):
         self.libclient = CDLL(os.path.abspath("../build/libclient.so"))
+        # self.libclient.set_zk_ip(c_char_p(zk_server_ip))
         self.libclient.do_get.argtypes = [c_char_p, c_char_p]
         self.libclient.do_get.restypes = c_int
 

@@ -60,7 +60,7 @@ void group_tester() {
 
 int main(int argc, char* argv[]) {
     if(argc > 1) {
-        zk_server_ip = std::string(argv[1]);
+        zk_server_ip = (char*)(argv[1]);
     }
     // char* key = (char*)"kalyani4";
     // tester(key);

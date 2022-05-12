@@ -107,7 +107,10 @@ target_link_libraries(client
   wifs_grpc_proto
   ${_REFLECTION}
   ${_GRPC_GRPCPP}
-  ${_PROTOBUF_LIBPROTOBUF})
+  ${_PROTOBUF_LIBPROTOBUF}
+  ${ZK_LIB}
+  ${ZK_LIB_MT_DEPS}
+  ${CHECK_LIB})
 set_property(TARGET client PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 add_library(custom_fs "custom_fs.cc")

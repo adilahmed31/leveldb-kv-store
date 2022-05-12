@@ -65,7 +65,7 @@ class Workloads(object):
         print("Correctness Test Passed")
 
 if __name__ == "__main__":
-    client = Client()
+    client = Client("http://c220g1-030604.wisc.cloudlab.us:2181/")
     num_keys = 100
     test_rand_workload = Workloads(client, num_keys)
     test_rand_workload.send_puts()
@@ -73,6 +73,6 @@ if __name__ == "__main__":
     while(True):
         print(f"Check gets (WorkLoad with {num_keys} keys)")
         test_rand_workload.send_gets()
-        print("Sleep for 3 seconds")
-        time.sleep(3)
+        print("Sleep for 15 seconds")
+        time.sleep(5)
 
