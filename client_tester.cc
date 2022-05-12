@@ -8,7 +8,7 @@
 #include "wifs.grpc.pb.h"
 
 void tester(char* key) {
-    char* buf = (char*)malloc(INT_MAX);
+    char* buf = (char*)malloc(BLOCK_SIZE);
     for (int i = 0; i < BLOCK_SIZE; i++) buf[i] = 'Z';
     int rc;
     rc = do_put(key, buf);
@@ -25,7 +25,7 @@ void tester(char* key) {
 }
 
 void group_tester() {
-    char* buf = (char*)malloc(INT_MAX);
+    char* buf = (char*)malloc(BLOCK_SIZE);
     for (int i = 0; i < BLOCK_SIZE; i++) buf[i] = 'Z';
     int rc;
     char* key = (char*)"kalyani4";
