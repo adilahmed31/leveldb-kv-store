@@ -37,14 +37,14 @@ extern "C" {
         if(it == server_map.end()) it = server_map.begin();
         if(options.wifsclient[it->second.serverid()] == NULL) init(it->second);
         
-        struct timeval begin, end;
-        gettimeofday(&begin, 0);
+        // struct timeval begin, end;
+        // gettimeofday(&begin, 0);
         int rc = options.wifsclient[it->second.serverid()]->wifs_GET(key, val);
-        gettimeofday(&end, 0);
-        long seconds = end.tv_sec - begin.tv_sec;
-        long microseconds = end.tv_usec - begin.tv_usec;
-        double elapsed = seconds + microseconds*1e-6;
-        printf("read, %lf\n", elapsed);
+        // gettimeofday(&end, 0);
+        // long seconds = end.tv_sec - begin.tv_sec;
+        // long microseconds = end.tv_usec - begin.tv_usec;
+        // double elapsed = seconds + microseconds*1e-6;
+        // printf("read, %lf\n", elapsed);
         
         return rc;
     }
@@ -57,14 +57,14 @@ extern "C" {
         if(it == server_map.end()) it = server_map.begin();
         if(options.wifsclient[it->second.serverid()] == NULL) init(it->second);
 
-        struct timeval begin, end;
-        gettimeofday(&begin, 0);
+        // struct timeval begin, end;
+        // gettimeofday(&begin, 0);
         int rc = options.wifsclient[it->second.serverid()]->wifs_GETRANGE(key, *batch_read);
-        gettimeofday(&end, 0);
-        long seconds = end.tv_sec - begin.tv_sec;
-        long microseconds = end.tv_usec - begin.tv_usec;
-        double elapsed = seconds + microseconds*1e-6;
-        printf("rangeread, %lf\n", elapsed);
+        // gettimeofday(&end, 0);
+        // long seconds = end.tv_sec - begin.tv_sec;
+        // long microseconds = end.tv_usec - begin.tv_usec;
+        // double elapsed = seconds + microseconds*1e-6;
+        // printf("rangeread, %lf\n", elapsed);
 
         return rc;
     }
@@ -77,14 +77,14 @@ extern "C" {
         if(it == server_map.end()) it = server_map.begin();
         if(options.wifsclient[it->second.serverid()] == NULL) init(it->second);
 
-        struct timeval begin, end;
-        gettimeofday(&begin, 0);
+        // struct timeval begin, end;
+        // gettimeofday(&begin, 0);
         int rc = options.wifsclient[it->second.serverid()]->wifs_PUT(key, val);
-        gettimeofday(&end, 0);
-        long seconds = end.tv_sec - begin.tv_sec;
-        long microseconds = end.tv_usec - begin.tv_usec;
-        double elapsed = seconds + microseconds*1e-6;
-        printf("put, %lf\n", elapsed);
+        // gettimeofday(&end, 0);
+        // long seconds = end.tv_sec - begin.tv_sec;
+        // long microseconds = end.tv_usec - begin.tv_usec;
+        // double elapsed = seconds + microseconds*1e-6;
+        // printf("put, %lf\n", elapsed);
 
         return rc;
     }
@@ -97,14 +97,14 @@ extern "C" {
         if (it == server_map.end()) it = server_map.begin();
         if (options.wifsclient[it->second.serverid()] == NULL) init(it->second);
 
-        struct timeval begin, end;
-        gettimeofday(&begin, 0);
+        // struct timeval begin, end;
+        // gettimeofday(&begin, 0);
         int rc = options.wifsclient[it->second.serverid()]->wifs_DELETE(key);
-        gettimeofday(&end, 0);
-        long seconds = end.tv_sec - begin.tv_sec;
-        long microseconds = end.tv_usec - begin.tv_usec;
-        double elapsed = seconds + microseconds*1e-6;
-        printf("put, %lf\n", elapsed);
+        // gettimeofday(&end, 0);
+        // long seconds = end.tv_sec - begin.tv_sec;
+        // long microseconds = end.tv_usec - begin.tv_usec;
+        // double elapsed = seconds + microseconds*1e-6;
+        // printf("put, %lf\n", elapsed);
 
         return rc;
     }
