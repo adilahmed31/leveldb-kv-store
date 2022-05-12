@@ -980,17 +980,17 @@ int main(int argc, char** argv) {
     In the current scheme, the new server has to inform the first server (0) about it's presence.
     First server adds new server to it's list and redirects future requests. 
     */
-    if(argc > 1) {
+    if(argc > 3) {
         should_crash = true;
     }
-    // if(argc > 1) {
-    //     // overwrite zk server address with the passed in value
-    //     zk_server_addr = std::string(argv[1]);
-    // }
+    if(argc > 1) {
+        // overwrite zk server address with the passed in value
+        zk_server_addr = std::string(argv[1]);
+    }
 
-    // if(argc > 2) {
-    //     efs_mount_path = std::string(argv[2]);
-    // }
+    if(argc > 2) {
+        efs_mount_path = std::string(argv[2]);
+    }
 
     //Ctrl + C handler
     signal(SIGINT, sigintHandler);
@@ -1032,7 +1032,7 @@ int main(int argc, char** argv) {
 
         if(should_crash) {
             std::cout<<"crashing after splitdb but before getting added to the ring\n";
-            exit(0);
+            kill(getpid(), SIGKILL);
         }
 
         //initialize new server with the master and keep checking if master is alive

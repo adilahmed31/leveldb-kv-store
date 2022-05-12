@@ -59,6 +59,17 @@ int main(int argc, char* argv[]) {
         do_put_for_key(key);
         key = (char*)"otg";
         do_put_for_key(key);
+
+        key = (char*)"87er";
+        do_put_for_key(key);
+        key = (char*)"nh8";
+        do_put_for_key(key);
+        key = (char*)"q7iu";
+        do_put_for_key(key);
+        key = (char*)"cb99a";
+        do_put_for_key(key);
+        key = (char*)"dt5jh";
+        do_put_for_key(key);
         return 0;
     }
 
@@ -73,6 +84,17 @@ int main(int argc, char* argv[]) {
     key = (char*)"dshb";
     do_get_for_key(key);
     key = (char*)"otg";
+    do_get_for_key(key);
+
+    key = (char*)"87er";
+    do_get_for_key(key);
+    key = (char*)"nh8";
+    do_get_for_key(key);
+    key = (char*)"q7iu";
+    do_get_for_key(key);
+    key = (char*)"cb99a";
+    do_get_for_key(key);
+    key = (char*)"dt5jh";
     do_get_for_key(key);
     return 0;
 }
