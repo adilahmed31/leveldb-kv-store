@@ -944,7 +944,6 @@ int main(int argc, char** argv) {
         // and after getting server id from master.
         init_server_dir();
         
-        if (do_cache) init_cache_dir(); //Delete old cache and create new cache directory 
         //start p2p server
         init_p2p_server();
 
@@ -956,7 +955,9 @@ int main(int argc, char** argv) {
 
         //Contact successor and transfer keys belonging to current node
         split_db_wrapper();
-
+        
+        if (do_cache) init_cache_dir(); //Delete old cache and create new cache directory 
+        
         print_ring();
 
         //initialize new server with the master and keep checking if master is alive
