@@ -60,19 +60,19 @@ void group_tester() {
 
 int main(int argc, char* argv[]) {
 
-    // char* key = (char*)"kalyani4";
-    // tester(key);
-    // key = (char*)"kalyani4400";
-    // tester(key);
-    // key = (char*)"kalyani44000";
-    // tester(key);
-    // key = (char*)"kalyani440000";
-    // tester(key);
-    // key = (char*)"kalyani4400000";
-    // tester(key);
-    // key = (char*)"l1fsdf";
-    // tester(key);
+    char* key = (char*)"k12";
+    tester(key);
+    key = (char*)"e34";
+    tester(key);
+    key = (char*)"h76";
+    tester(key);
+    key = (char*)"l89";
+    tester(key);
+    key = (char*)"dshb";
+    tester(key);
+    key = (char*)"otg";
+    tester(key);
 
-    group_tester();
+    // group_tester();
     return 0;
 }

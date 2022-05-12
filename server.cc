@@ -368,7 +368,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         // no need to start heartbeat here, as it is being started in PingMaster itself. 
         
         update_ring_id();
-        // print_ring();
+        print_ring();
         return grpc::Status::OK;
     }
 
@@ -386,18 +386,18 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
             std::cout << "server removed: " << request->id() << std::endl;
         }
         update_ring_id();
-        // print_ring();
+        print_ring();
         return grpc::Status::OK;
     }
 
     grpc::Status p2p_PUT(ServerContext* context, const wifs::PutReq* request, wifs::PutRes* reply) override {
-        std::cout<<"got put call from peer for key "<< request->key() <<"\n";
+        std::cout<<"got PUT call from peer for key "<< request->key() <<"\n";
         execute_local_put(request, reply);
         return grpc::Status::OK;
     }
 
     grpc::Status p2p_GET(ServerContext* context, const wifs::GetReq* request, wifs::GetRes* reply) override {
-        std::cout<<"got get call from peer for key " << request->key() <<"\n";
+        std::cout<<"got GET call from peer for key " << request->key() <<"\n";
         update_pending_writes();
         get_as_per_mode(request, reply);
         return grpc::Status::OK;
@@ -523,6 +523,7 @@ class WifsServiceImplementation final : public WIFS::Service {
 
             return grpc::Status::OK;
         }
+        std::cout<<"got PUT call from client for key "<<request->key()<<"\n";
         execute_local_put(request, reply);
         populate_hash_server_map(reply->mutable_hash_server_map());
         return grpc::Status::OK;
@@ -554,7 +555,7 @@ class WifsServiceImplementation final : public WIFS::Service {
 
             return grpc::Status::OK;
         }
-
+        std::cout<<"got GET call from client for key "<<request->key()<<"\n";
         update_pending_writes();
         get_as_per_mode(request, reply);
         populate_hash_server_map(reply->mutable_hash_server_map());
@@ -649,7 +650,7 @@ void heartbeat_helper(wifs::ServerDetails hb_server_details, int max_retries) {
             // std::cout<<hb_server_details.serverid()<<"'s HEARTBEAT FAILED\n";
             retry_count++;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 }
 
@@ -737,7 +738,7 @@ void watch_for_master() {
         std::chrono::duration<double> diff = now - then;
         printf(",");
         fflush(stdout);
-        if(diff.count() > 0.5) {
+        if(diff.count() > 3) {
             // std::cout<<"----FINDING NEW MASTER----"<<std::endl;
             std::cout<<"finding new master..."<<std::endl;
             find_master_server();
@@ -960,7 +961,7 @@ int main(int argc, char** argv) {
         //Contact successor and transfer keys belonging to current node
         split_db_wrapper();
 
-        // print_ring();
+        print_ring();
 
         //initialize new server with the master and keep checking if master is alive
         init_server_and_watch_master(idreply);

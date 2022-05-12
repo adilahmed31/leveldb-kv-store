@@ -93,7 +93,8 @@ void remove_server_entry(wifs::ServerDetails sd){
 
 void print_ring(){
     for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
-        std::cout<<it->first<<" - "<<it->second.serverid()<<std::endl;
+        std::cout<<"h:"<<it->first<<"-id:"<<it->second.serverid()<<" ";
     }
+    std::cout<<"\n";
 }
 
