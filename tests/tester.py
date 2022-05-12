@@ -36,3 +36,8 @@ class Client():
         write_buf = get_write_buffer(value)
         key = get_write_buffer(key)
         self.libclient.do_put(key, write_buf)
+
+    def get_range_nilext(self, prefix):
+        prefix_encoded = get_write_buffer(prefix)
+        self.batchsize = self.libclient.do_getRange_nilext(prefix_encoded)
+        return self.batchsize

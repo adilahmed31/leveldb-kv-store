@@ -13,6 +13,8 @@
 #include <sys/types.h>
 #include <pwd.h>
 #include <iostream>
+#include <fstream>
+#include <experimental/filesystem>
 #include "wifs.grpc.pb.h"
 using wifs::ServerDetails;
 
@@ -31,12 +33,26 @@ int single_server = 0;
 std::string master_file;
 int MASTER_ID = 0;
 
-std::string getHomeDir() {
+std::string efs_mount_path = "";
+
+std::string getCacheDir(int machine_id){
     const char *homedir;
     if ((homedir = getenv("HOME")) == NULL) {
         homedir = getpwuid(getuid())->pw_dir;
     }
-    return std::string(homedir);
+    return std::string(homedir) + "/.cache" + std::to_string(machine_id);
+}
+
+std::string getHomeDir() {
+    // if a mount path is specified, just use that
+    if(efs_mount_path != "") return efs_mount_path;
+    else{
+        const char *homedir;
+        if ((homedir = getenv("HOME")) == NULL) {
+            homedir = getpwuid(getuid())->pw_dir;
+        }
+        return std::string(homedir);
+    }
 }
 
 std::string getServerDir(int machine_id){

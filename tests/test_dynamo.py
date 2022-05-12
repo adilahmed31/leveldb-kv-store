@@ -52,6 +52,17 @@ class DynamoWorkloads(object):
         time_put = 0
         start_time = time.time()
         
+        for key in self.kv:
+            self.table.put_item(
+                Item={
+                    'key': key,
+                    'value': self.kv[key]
+                }
+            )
+        time_put = time.time() - start_time
+        print(f"Time for random puts (single client): {time_put}")
+
+    ''' FOR BATCH MODE, USE - 
         with self.table.batch_writer() as batch:
             for key in self.kv:
                 batch.put_item(
@@ -59,10 +70,11 @@ class DynamoWorkloads(object):
                     'key': key,
                     'value': self.kv[key]
                 }
-            )
+                )
+        '''
 
-        time_put = time.time() - start_time
-        print(f"Time for random puts (single client): {time_put}")
+       # time_put = time.time() - start_time
+       # print(f"Time for random puts (single client): {time_put}")
 
     #One client, gets values for all keys in kv
     def send_gets(self):
@@ -71,9 +83,11 @@ class DynamoWorkloads(object):
         
         for key in self.kv:
             response = self.table.get_item(
+                TableName='benchmarking',
                 Key={
                     'key': key
-                }
+                },
+                ConsistentRead=False
             )
             #To access value, do:
             # item = response['Item']
@@ -83,7 +97,7 @@ class DynamoWorkloads(object):
         print(f"Time for random gets (single client): {time_get}")
 
 if __name__ == "__main__":
-    num_keys = 100
+    num_keys = 1000
 
     test_rand_workload = DynamoWorkloads(num_keys)
     test_rand_workload.send_puts()
