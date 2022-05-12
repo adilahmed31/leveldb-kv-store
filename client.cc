@@ -34,9 +34,10 @@ void populate_tmp_master_server_details(wifs::ServerDetails &master_details) {
         master_details.set_serverid(atoi(master_server_details_str.substr(delim_pos+1, 5).c_str()) - 50060);
         std::cout<<master_details.serverid()<<"\n";
         return;
-    } 
-    std::cout<<"zk doesn't have master ip, something is wrong. exit\n";
-    std::exit(0);
+    }
+    std::cout<<"retry findng master config in ZK\n";
+    sleep(5);
+    return populate_tmp_master_server_details(master_details);
 }
 
 void init_tmp_master(){
