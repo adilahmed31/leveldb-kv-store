@@ -739,7 +739,7 @@ void watch_for_master() {
         auto now = std::chrono::system_clock::now();
         std::chrono::duration<double> diff = now - then;
         std::cout<<"Time elapsed between latest ping from master till now = "<<diff.count()<<std::endl;
-        if(diff.count() > 0.5) {
+        if(diff.count() > 3) {
             std::cout<<"----FINDING NEW MASTER----"<<std::endl;
             find_master_server();
         }
