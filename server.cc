@@ -250,6 +250,7 @@ void execute_local_put(const wifs::PutReq* request, wifs::PutRes* reply) {
     
     sem_wait(&mutex_write_batch); // acquire the lock
     global_write_batch.Put(request->key(), request->val().c_str());
+    std::cout << "request->key() " << request->key() << "request->val().c_str()" << request->val().c_str() << std::endl;
     if(write_batch_counter >= batch_size - 1) {
         if(do_cache){
             leveldb::Status s_cache = cache->Write(write_options, &global_write_batch);
@@ -258,9 +259,11 @@ void execute_local_put(const wifs::PutReq* request, wifs::PutRes* reply) {
         leveldb::Status s_remote = db->Write(write_options, &global_write_batch);
         global_write_batch.Clear(); // release the lock
         write_batch_counter = 0;
+        std::cout << "s_remote.ok() " << s_remote.ok() << std::endl;
         reply->set_status(s_remote.ok() ? wifs::PutRes_Status_PASS : wifs::PutRes_Status_FAIL);
     } else {
         write_batch_counter++;
+        std::cout << "write batch count " << write_batch_counter << std::endl;
         reply->set_status(wifs::PutRes_Status_PASS);
     }
     sem_post(&mutex_write_batch);
@@ -291,9 +294,10 @@ void get_as_per_mode(const wifs::GetReq* request, wifs::GetRes* reply){
         else{
             it = db->NewIterator(options);
         }
-        leveldb::Slice start_key = filter_wildcard(request->key().c_str());
+        std::string sk = filter_wildcard(request->key().c_str());
+        leveldb::Slice start_key = sk;
         for (it->Seek(start_key); it->Valid(); it->Next()) {
-            if(it->key().ToString().substr(0,config.prefix_length()) != start_key ) break;
+            if(it->key().ToString().substr(0,config.prefix_length()) != sk ) break;
             std::cout << "Found key: " << it->key().ToString() << std::endl;
             wifs::KVPair* kv_pair = reply->add_kvpairs();
             kv_pair->set_key(it->key().ToString());
