@@ -204,11 +204,11 @@ int merge_ldb(wifs::ServerDetails failed_server_details){
     leveldb::Options options;
     leveldb::DB* db_merge;
     options.create_if_missing = false; //This should never be missing
-    std::cout << "Trying to merge with DB at path :" << getServerDir(failed_server_id) << std::endl;
+    // std::cout << "Trying to merge with DB at path :" << getServerDir(failed_server_id) << std::endl;
     leveldb::Status s = leveldb::DB::Open(options, getServerDir(failed_server_id), &db_merge);
 
     if(!s.ok()){
-        std::cout << "Error opening DB of failed node" <<std::endl;
+        // std::cout << "Error opening DB of failed node" <<std::endl;
         leveldb::Status status = leveldb::DestroyDB(getServerDir(failed_server_id), leveldb::Options());
         std::experimental::filesystem::remove_all(getServerDir(failed_server_id));
         return -1;
@@ -229,7 +229,7 @@ int merge_ldb(wifs::ServerDetails failed_server_details){
     // std::cout << "Wrote entries from DB of server " <<failed_server_id<<std::endl;
     db_merge->Write(w,&deletebatch);
     // std::cout << "Deleted all entries from DB of server "<<failed_server_id<<std::endl;
-    std::cout << "merged db of " <<failed_server_id << " into the current server\n";
+    // std::cout << "merged db of " <<failed_server_id << " into the current server\n";
     delete db_merge;
     leveldb::Status status = leveldb::DestroyDB(getServerDir(failed_server_id), leveldb::Options());
     std::experimental::filesystem::remove_all(getServerDir(failed_server_id));
@@ -328,7 +328,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     }
 
     grpc::Status PingMaster(ServerContext* context, const p2p::ServerInit* request, p2p::HeartBeat* reply) {
-        std::cout << "new server with id "<<request->id()<<" trying to join ring"<<std::endl;
+        // std::cout << "new server with id "<<request->id()<<" trying to join ring"<<std::endl;
         then = std::chrono::system_clock::now();
         wifs::ServerDetails hb_server_details;
         hb_server_details.set_serverid(request->id());
@@ -345,7 +345,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         sem_post(&mutex_allot_server_id);
 
         reply->set_id(next_poss_server_id);
-        std::cout <<"new server request, alloting id = " << next_poss_server_id << std::endl;
+        // std::cout <<"new server request, alloting id = " << next_poss_server_id << std::endl;
 
         populate_hash_server_map(reply->mutable_servermap());
         return grpc::Status::OK;
@@ -362,13 +362,13 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         insert_server_entry(sd);
         
         request_copy.set_action(p2p::ServerInit_Action_INSERT);
-        std::cout<<"new server added: "<< request->id() <<"\n";
+        // std::cout<<"new server added: "<< request->id() <<"\n";
         broadcast_new_server_to_all(request_copy); //broadcast to the new server also, mode 0 for adding server ID
         
         // no need to start heartbeat here, as it is being started in PingMaster itself. 
         
         update_ring_id();
-        print_ring();
+        // print_ring();
         return grpc::Status::OK;
     }
 
@@ -379,25 +379,25 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         sd.set_ipaddr(request->ipaddr());
         if(request->action() == p2p::ServerInit_Action_INSERT){
             insert_server_entry(sd);
-            std::cout << "new server added: " << request->id() << std::endl;
+            // std::cout << "new server added: " << request->id() << std::endl;
         }
         else{
             remove_server_entry(sd);
-            std::cout << "server removed: " << request->id() << std::endl;
+            // std::cout << "server removed: " << request->id() << std::endl;
         }
         update_ring_id();
-        print_ring();
+        // print_ring();
         return grpc::Status::OK;
     }
 
     grpc::Status p2p_PUT(ServerContext* context, const wifs::PutReq* request, wifs::PutRes* reply) override {
-        std::cout<<"got PUT call from peer for key "<< request->key() <<"\n";
+        // std::cout<<"got PUT call from peer for key "<< request->key() <<"\n";
         execute_local_put(request, reply);
         return grpc::Status::OK;
     }
 
     grpc::Status p2p_GET(ServerContext* context, const wifs::GetReq* request, wifs::GetRes* reply) override {
-        std::cout<<"got GET call from peer for key " << request->key() <<"\n";
+        // std::cout<<"got GET call from peer for key " << request->key() <<"\n";
         update_pending_writes();
         get_as_per_mode(request, reply);
         return grpc::Status::OK;
@@ -442,7 +442,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         //Open new DB for joined node
         leveldb::Status s = leveldb::DB::Open(options, getServerDir(request->id()), &db_split);
         if(!s.ok()){
-            std::cout << "Error opening DB of new node" <<std::endl;
+            // std::cout << "Error opening DB of new node" <<std::endl;
             reply->set_status(p2p::StatusRes_Status_FAIL);
             return grpc::Status::OK;
         }
@@ -472,7 +472,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         if(do_cache) cache->Write(w,&deletebatch);
         delete db_split; //close new db so it can be re-opened by the calling server
         reply->set_status(p2p::StatusRes_Status_PASS);
-        std::cout << "splitting db with server "<< request->id() << std::endl;
+        // std::cout << "splitting db with server "<< request->id() << std::endl;
         return grpc::Status::OK;
     }
 
@@ -488,7 +488,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         
         int rc = merge_ldb(sd);
         if(rc < 0){
-            std::cout << "merge_ldb returned -1. Error opening DB of failed node" <<std::endl;
+            // std::cout << "merge_ldb returned -1. Error opening DB of failed node" <<std::endl;
             reply->set_status(p2p::StatusRes_Status_FAIL);
             return grpc::Status::OK;
         }
@@ -506,7 +506,7 @@ class WifsServiceImplementation final : public WIFS::Service {
         wifs::ServerDetails dest_server_details = get_dest_server_details(hash_key);
         int dest_server_id = dest_server_details.serverid();
         if(dest_server_id != server_details.serverid()) {
-            std::cout<<"redirecting put request to "<<dest_server_id<<"\n";
+            // std::cout<<"redirecting put request to "<<dest_server_id<<"\n";
             if(client_stub_[dest_server_id] == NULL) connect_with_peer(dest_server_details);
             ClientContext context;
             grpc::Status status = client_stub_[dest_server_id]->p2p_PUT(&context, *request, reply);
@@ -523,7 +523,7 @@ class WifsServiceImplementation final : public WIFS::Service {
 
             return grpc::Status::OK;
         }
-        std::cout<<"got PUT call from client for key "<<request->key()<<"\n";
+        // std::cout<<"got PUT call from client for key "<<request->key()<<"\n";
         execute_local_put(request, reply);
         populate_hash_server_map(reply->mutable_hash_server_map());
         return grpc::Status::OK;
@@ -538,7 +538,7 @@ class WifsServiceImplementation final : public WIFS::Service {
         
         int dest_server_id = dest_server_details.serverid();
         if(dest_server_id != server_details.serverid()) {
-            std::cout<<"redirecting get request to "<<dest_server_details.serverid()<<"\n";
+            // std::cout<<"redirecting get request to "<<dest_server_details.serverid()<<"\n";
             if(client_stub_[dest_server_id] == NULL) connect_with_peer(dest_server_details);
             ClientContext context;
             grpc::Status status = client_stub_[dest_server_id]->p2p_GET(&context, *request, reply);
@@ -555,7 +555,7 @@ class WifsServiceImplementation final : public WIFS::Service {
 
             return grpc::Status::OK;
         }
-        std::cout<<"got GET call from client for key "<<request->key()<<"\n";
+        // std::cout<<"got GET call from client for key "<<request->key()<<"\n";
         update_pending_writes();
         get_as_per_mode(request, reply);
         populate_hash_server_map(reply->mutable_hash_server_map());
@@ -618,7 +618,7 @@ void run_wifs_server() {
     wifsServer.AddListeningPort(cur_node_wifs_address, grpc::InsecureServerCredentials());
     wifsServer.RegisterService(&service);
     std::unique_ptr<Server> server(wifsServer.BuildAndStart());
-    std::cout << "running external server on " << cur_node_wifs_address << std::endl;
+    // std::cout << "running external server on " << cur_node_wifs_address << std::endl;
     server->Wait();
 }
 
@@ -630,7 +630,7 @@ void run_p2p_server() {
     p2pServer.RegisterService(&service);
     std::unique_ptr<Server> server(p2pServer.BuildAndStart());
     
-    std::cout << "running p2p server on " << this_node_address << std::endl;
+    // std::cout << "running p2p server on " << this_node_address << std::endl;
 
     server->Wait();
 }
@@ -644,7 +644,7 @@ void heartbeat_helper(wifs::ServerDetails hb_server_details, int max_retries) {
         grpc::Status s = client_stub_[hb_server_details.serverid()]->Ping(&context, hbrequest, &hbreply);
         if(s.ok()) {
             retry_count = 0;
-            printf(".");
+            // printf(".");
             fflush(stdout);
         } else { 
             // std::cout<<hb_server_details.serverid()<<"'s HEARTBEAT FAILED\n";
@@ -660,7 +660,7 @@ p2p::ServerInit merge_db_helper(wifs::ServerDetails heartbeat_server_details) {
     p2p::ServerInit mergerequest;
     mergerequest.set_id(heartbeat_server_details.serverid());  
     mergerequest.set_ipaddr(heartbeat_server_details.ipaddr());
-    std::cout<<"initiating merge of "<<heartbeat_server_details.serverid()<<"'s db with successor "<<failed_server_successor_id<<"\n";
+    // std::cout<<"initiating merge of "<<heartbeat_server_details.serverid()<<"'s db with successor "<<failed_server_successor_id<<"\n";
     //if master is the successor of the failed node, perform the merge locally without an RPC call
     if(server_details.serverid() == failed_server_successor_id){
         // std::cout << "Master itself is the successor of "<< heartbeat_server_details.serverid() <<std::endl;
@@ -677,7 +677,7 @@ p2p::ServerInit merge_db_helper(wifs::ServerDetails heartbeat_server_details) {
         grpc::Status s = client_stub_[failed_server_successor_id]->MergeDB(&context_merge, mergerequest, &mergereply);
         // std::cout << "s.ok()? " << s.ok() << " mergereply.status()" << mergereply.status() << std::endl;
         if ((!s.ok()) || (mergereply.status() == p2p::StatusRes_Status_FAIL)){
-            std::cout << "successor could not merge" <<std::endl; //TODO (Handle failure)
+            // std::cout << "successor could not merge" <<std::endl; //TODO (Handle failure)
         }
     }
     return mergerequest;
@@ -685,7 +685,7 @@ p2p::ServerInit merge_db_helper(wifs::ServerDetails heartbeat_server_details) {
 
 void heartbeat(wifs::ServerDetails hb_server_details){
     heartbeat_helper(hb_server_details, 5);
-    std::cout<<"server "<<hb_server_details.serverid()<<" is unreachable\n";
+    // std::cout<<"server "<<hb_server_details.serverid()<<" is unreachable\n";
     // heartbeat failed after 5 retries, so now merge DBs
     p2p::ServerInit mergerequest = merge_db_helper(hb_server_details);
     // remove failed server from server_map
@@ -716,7 +716,7 @@ void find_master_server() {
         MASTER_IP = master_server_details_str.substr(0, delim_pos);
         MASTER_ID = atoi(master_server_details_str.substr(delim_pos+1, 5).c_str()) - 50060;
         // std::cout<<"----MASTER_ID----"<<MASTER_ID<<std::endl;
-        std::cout<<"master ip read from zookeeper "<<MASTER_IP<<std::endl;
+        // std::cout<<"master ip read from zookeeper "<<MASTER_IP<<std::endl;
         return;
     }
 
@@ -724,7 +724,7 @@ void find_master_server() {
     MASTER_ID = server_details.serverid();
     MASTER_IP = server_details.ipaddr();
     
-    std::cout<<"no current master, becoming one!!!\n";
+    // std::cout<<"no current master, becoming one!!!\n";
     // will go through only the first time
     ret = framework->create()->forPath("/next_poss_server_id", (char *) "1");
     // if (ret == ZNODEEXISTS) {
@@ -736,11 +736,11 @@ void watch_for_master() {
     while(MASTER_ID != server_details.serverid()) {
         auto now = std::chrono::system_clock::now();
         std::chrono::duration<double> diff = now - then;
-        printf(",");
+        // printf(",");
         fflush(stdout);
         if(diff.count() > 3) {
             // std::cout<<"----FINDING NEW MASTER----"<<std::endl;
-            std::cout<<"finding new master..."<<std::endl;
+            // std::cout<<"finding new master..."<<std::endl;
             find_master_server();
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
@@ -837,7 +837,7 @@ void split_db_wrapper(){
     splitrequest.set_id(server_details.serverid());
     grpc::Status s = client_stub_[successor_server_details.serverid()]->SplitDB(&context_split, splitrequest, &splitreply);
     if (splitreply.status() == p2p::StatusRes_Status_FAIL){
-        std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
+        // std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
     }
 }
 
@@ -960,7 +960,7 @@ int main(int argc, char** argv) {
         //Contact successor and transfer keys belonging to current node
         split_db_wrapper();
 
-        print_ring();
+        // print_ring();
 
         //initialize new server with the master and keep checking if master is alive
         init_server_and_watch_master(idreply);
@@ -993,7 +993,7 @@ int main(int argc, char** argv) {
         leveldb::Status s_cache = leveldb::DB::Open(options, getCacheDir(server_details.serverid()).c_str(), &cache);
         if(!s_cache.ok()){
             do_cache = 0;
-            std::cout << "Unable to create Cache DB. Caching disabled." <<std::endl;
+            // std::cout << "Unable to create Cache DB. Caching disabled." <<std::endl;
         }
     }
     

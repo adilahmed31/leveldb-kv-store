@@ -1,8 +1,9 @@
 #include <grpcpp/grpcpp.h>
-#include <time.h>
 
 #include "WifsClient.h"
 #include "wifs.grpc.pb.h"
+
+#include <sys/time.h>
 
 static struct options {
     WifsClient* wifsclient[MAX_NUM_SERVERS];
@@ -35,7 +36,16 @@ extern "C" {
         auto it = server_map.lower_bound(somehashfunction(std::string(key)));
         if(it == server_map.end()) it = server_map.begin();
         if(options.wifsclient[it->second.serverid()] == NULL) init(it->second);
+        
+        struct timeval begin, end;
+        gettimeofday(&begin, 0);
         int rc = options.wifsclient[it->second.serverid()]->wifs_GET(key, val);
+        gettimeofday(&end, 0);
+        long seconds = end.tv_sec - begin.tv_sec;
+        long microseconds = end.tv_usec - begin.tv_usec;
+        double elapsed = seconds + microseconds*1e-6;
+        printf("read, %lf\n", elapsed);
+        
         return rc;
     }
 
@@ -46,7 +56,16 @@ extern "C" {
         auto it = server_map.lower_bound(somehashfunction(std::string(key)));
         if(it == server_map.end()) it = server_map.begin();
         if(options.wifsclient[it->second.serverid()] == NULL) init(it->second);
+
+        struct timeval begin, end;
+        gettimeofday(&begin, 0);
         int rc = options.wifsclient[it->second.serverid()]->wifs_GETRANGE(key, *batch_read);
+        gettimeofday(&end, 0);
+        long seconds = end.tv_sec - begin.tv_sec;
+        long microseconds = end.tv_usec - begin.tv_usec;
+        double elapsed = seconds + microseconds*1e-6;
+        printf("rangeread, %lf\n", elapsed);
+
         return rc;
     }
 
@@ -57,7 +76,16 @@ extern "C" {
         auto it = server_map.lower_bound(somehashfunction(std::string(key)));
         if(it == server_map.end()) it = server_map.begin();
         if(options.wifsclient[it->second.serverid()] == NULL) init(it->second);
+
+        struct timeval begin, end;
+        gettimeofday(&begin, 0);
         int rc = options.wifsclient[it->second.serverid()]->wifs_PUT(key, val);
+        gettimeofday(&end, 0);
+        long seconds = end.tv_sec - begin.tv_sec;
+        long microseconds = end.tv_usec - begin.tv_usec;
+        double elapsed = seconds + microseconds*1e-6;
+        printf("put, %lf\n", elapsed);
+
         return rc;
     }
 
@@ -68,7 +96,16 @@ extern "C" {
         auto it = server_map.lower_bound(somehashfunction(std::string(key)));
         if (it == server_map.end()) it = server_map.begin();
         if (options.wifsclient[it->second.serverid()] == NULL) init(it->second);
+
+        struct timeval begin, end;
+        gettimeofday(&begin, 0);
         int rc = options.wifsclient[it->second.serverid()]->wifs_DELETE(key);
+        gettimeofday(&end, 0);
+        long seconds = end.tv_sec - begin.tv_sec;
+        long microseconds = end.tv_usec - begin.tv_usec;
+        double elapsed = seconds + microseconds*1e-6;
+        printf("put, %lf\n", elapsed);
+
         return rc;
     }
 }
