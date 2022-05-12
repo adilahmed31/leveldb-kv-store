@@ -9,12 +9,32 @@ service PeerToPeer {
     rpc PingMaster(ServerInit) returns (HeartBeat) {}
     rpc p2p_GET(wifs.GetReq) returns (wifs.GetRes){}
     rpc p2p_PUT(wifs.PutReq) returns (wifs.PutRes){}
+    rpc p2p_DELETE(wifs.DeleteReq) returns (wifs.DeleteRes) {}
     rpc AllotServerId(HeartBeat) returns (ServerInit){}
     rpc BroadcastServerId(ServerInit) returns (HeartBeat){}
     rpc InitializeNewServer(ServerInit) returns (HeartBeat){}
     rpc CompactMemTable(HeartBeat) returns (StatusRes){}
     rpc MergeDB(ServerInit) returns (StatusRes){}
     rpc SplitDB(SplitReq) returns (StatusRes){}
+}
+
+message ServerConfig{
+    enum Mode {
+        DEFAULT = 0;
+        WRITE = 1; //batch writes at server before committing
+        READ = 2; //enable locality for storing keys
+    }
+    enum State {
+        // can be used when doing the catch up work after failure
+        INIT = 0;
+
+        // when in normal operation
+        READY = 1;
+    }
+    State state = 4;
+    Mode mode = 1;
+    int32 num_batch = 2; // number of writes to batch at each node
+    int32 prefix_length = 3; //length of prefix to hash for maintaining locality
 }
 
 message HeartBeat {

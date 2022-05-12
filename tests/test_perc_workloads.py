@@ -5,7 +5,6 @@ import time
 
 import random
 import string
-import hashlib
 
 '''
 Test workloads:
@@ -18,7 +17,7 @@ Random reads/writes traverse the key space in random order.
 
 class Workloads(object):
 
-    def __init__(self, client, num_keys, random = True):
+    def __init__(self, client, num_keys, percentage_reads, random = True):
         self.key_size = 16
         self.val_size = 100
         self.client = client
@@ -52,6 +51,8 @@ class Workloads(object):
         for key in self.kv:
             self.client.put(key, self.kv[key])
         
+        time_put = time.time() - start_time
+        print(f"Time for random puts (single client): {time_put}")
 
     #One client, gets values for all keys in kv
     def send_gets(self):
@@ -59,15 +60,10 @@ class Workloads(object):
         start_time = time.time()
         
         for key in self.kv:
-            val = self.client.get(key)
-            print("Checksum-")
-<<<<<<< HEAD
-            assert hashlib.md5(self.kv[key].encode()).hexdigest() == hashlib.md5(val.encode()).hexdigest()
-=======
-            print(hashlib.md5(self.kv[key].encode()).hexdigest())
-            print(hashlib.md5(val.encode()).hexdigest())
->>>>>>> 18f23351511aa85460d013e93af2721adf888df5
-
+            self.client.get(key)
+        
+        time_get = time.time() - start_time
+        print(f"Time for random gets (single client): {time_get}")
 
 if __name__ == "__main__":
     client = Client()
