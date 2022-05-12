@@ -767,8 +767,7 @@ void sigintHandler(int sig_num)
         std::experimental::filesystem::remove_all(getCacheDir(server_details.serverid()));
     }
     delete db;
-    std::exit(0);
-
+    kill(getpid(), SIGTERM);
 }
 
 void init_p2p_server() {
