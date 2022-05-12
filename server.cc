@@ -107,6 +107,10 @@ auto then = std::chrono::system_clock::now();
 std::condition_variable cv;
 
 leveldb::DB* db;
+leveldb::DB* cache;
+
+int do_cache = 1;
+
 leveldb::WriteBatch global_write_batch;
 int write_batch_counter = 0;
 sem_t mutex_write_batch;
@@ -226,7 +230,7 @@ int merge_ldb(wifs::ServerDetails failed_server_details){
 }
 
 std::string parse_ipmsg(std::string ipmsg){
-    int start_index = ipmsg.find(":")+1;
+    int start_index = ipmsg.find(":") + 1;
     int end_index = ipmsg.find(":", start_index);
     return ipmsg.substr(start_index, end_index-start_index);
 }
@@ -241,10 +245,14 @@ void execute_local_put(const wifs::PutReq* request, wifs::PutRes* reply) {
     sem_wait(&mutex_write_batch); // acquire the lock
     global_write_batch.Put(request->key(), request->val().c_str());
     if(write_batch_counter >= batch_size - 1) {
-        leveldb::Status s = db->Write(write_options, &global_write_batch);
+        if(do_cache){
+            leveldb::Status s_cache = cache->Write(write_options, &global_write_batch);
+            do_cache = s_cache.ok() ? 1 : 0;
+        }
+        leveldb::Status s_remote = db->Write(write_options, &global_write_batch);
         global_write_batch.Clear(); // release the lock
         write_batch_counter = 0;
-        reply->set_status(s.ok() ? wifs::PutRes_Status_PASS : wifs::PutRes_Status_FAIL);
+        reply->set_status(s_remote.ok() ? wifs::PutRes_Status_PASS : wifs::PutRes_Status_FAIL);
     } else {
         write_batch_counter++;
         reply->set_status(wifs::PutRes_Status_PASS);
@@ -255,6 +263,10 @@ void execute_local_put(const wifs::PutReq* request, wifs::PutRes* reply) {
 void update_pending_writes() {
     leveldb::WriteOptions write_options;
     sem_wait(&mutex_write_batch);
+    if(do_cache){
+        std::cout<<"Caching enabled!"<<std::endl;
+        cache->Write(write_options, &global_write_batch);
+    }
     db->Write(write_options, &global_write_batch);
     global_write_batch.Clear();
     write_batch_counter = 0;
@@ -262,10 +274,17 @@ void update_pending_writes() {
 }
 
 void get_as_per_mode(const wifs::GetReq* request, wifs::GetRes* reply){
-    if (request->mode() == 1){
+   leveldb::Status s;
+   if (request->mode() == 1){
         leveldb::ReadOptions options;
+        leveldb::Iterator* it;
         options.fill_cache = false;
-        leveldb::Iterator* it = db->NewIterator(options);
+        if (do_cache){
+            it = cache->NewIterator(options);
+        }
+        else{
+            it = db->NewIterator(options);
+        }
         leveldb::Slice start_key = filter_wildcard(request->key().c_str());
         for (it->Seek(start_key); it->Valid(); it->Next()) {
             if(it->key().ToString().substr(0,config.prefix_length()) != start_key ) break;
@@ -279,7 +298,16 @@ void get_as_per_mode(const wifs::GetReq* request, wifs::GetRes* reply){
     }
     else{
         std::string val = "";
-        leveldb::Status s = db->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
+        if (do_cache){
+            s = cache->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
+            if(!s.ok()){
+                s = db->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
+                do_cache = 0;
+            }
+        }
+        else{
+            s = db->Get(leveldb::ReadOptions(), request->key().c_str(), &val);
+        }
         reply->set_status(s.ok() ? wifs::GetRes_Status_PASS : wifs::GetRes_Status_FAIL);
         reply->set_val(val);
     }
@@ -497,7 +525,7 @@ class WifsServiceImplementation final : public WIFS::Service {
                 request->key();
 
         wifs::ServerDetails dest_server_details = get_dest_server_details(hash_key);
-
+        
         int dest_server_id = dest_server_details.serverid();
         if(dest_server_id != server_details.serverid()) {
             std::cout<<"sending get to server "<<dest_server_details.serverid()<<"\n";
@@ -667,8 +695,7 @@ void find_master_server() {
         server_config_str = framework->getData()->forPath("/config");
         std::cout<<"currently running server under config "<<server_config_str<<"\n";
     }
-
-    int ret = framework->create()->forPath("/master", getP2PServerAddr(server_details).c_str());
+    int ret = framework->create()->withFlags(ZOO_EPHEMERAL)->forPath("/master", getP2PServerAddr(server_details).c_str());
     if (ret == ZNODEEXISTS) {
         // file exists
         isMaster = false;
@@ -698,7 +725,7 @@ void watch_for_master() {
         auto now = std::chrono::system_clock::now();
         std::chrono::duration<double> diff = now - then;
         std::cout<<"Time elapsed between latest ping from master till now = "<<diff.count()<<std::endl;
-        if(diff.count() > 5) {
+        if(diff.count() > 0.5) {
             std::cout<<"----FINDING NEW MASTER----"<<std::endl;
             find_master_server();
         }
@@ -739,7 +766,7 @@ void init_zk_connection() {
     // strcpy(zk_client.passwd, "lol");
 
     ConservatorFrameworkFactory factory = ConservatorFrameworkFactory();
-    framework = factory.newClient(zk_server_addr.c_str());
+    framework = factory.newClient(zk_server_addr.c_str(),1000);
     framework->start();
 }
 
@@ -766,6 +793,14 @@ void init_server_dir(){
     DIR* dir = opendir(getServerDir(server_details.serverid()).c_str());
     if (ENOENT == errno) {
         mkdir(getServerDir(server_details.serverid()).c_str(), 0777);
+    }
+    closedir(dir);
+}
+
+void init_cache_dir(){
+    DIR* dir = opendir(getCacheDir(server_details.serverid()).c_str());
+    if (ENOENT == errno) {
+        mkdir(getCacheDir(server_details.serverid()).c_str(), 0777);
     }
     closedir(dir);
 }
@@ -812,6 +847,13 @@ std::vector<std::string> parse_string(std::string s, std::string delimiter) {
     return ans;
 }
 
+
+/* Set mode based on config. Modes can be:
+DEFAULT = 0;
+WRITE = 1; //batch writes at server before committing
+READ = 2; ////enable locality for storing keys
+*/
+
 void get_config() {
     std::vector<std::string> values = parse_string(server_config_str, ",");
     
@@ -819,6 +861,8 @@ void get_config() {
     config.set_num_batch(stoi(values[1]));
     config.set_prefix_length(stoi(values[2]));
     std::cout << config.mode() <<"  " <<config.num_batch() << "  " <<config.prefix_length() << std::endl;
+    //Update caching based on value of config
+    do_cache = config.mode() == p2p::ServerConfig_Mode_WRITE ? 0 : 1;
 }
 
 void collect_db() {
@@ -885,7 +929,7 @@ int main(int argc, char** argv) {
         // Create server path if it doesn't exist, should be done before calling split/merge db
         // and after getting server id from master.
         init_server_dir();
-
+        
         //start p2p server
         init_p2p_server();
 
@@ -908,6 +952,7 @@ int main(int argc, char** argv) {
 
         // Create server path if it doesn't exist
         init_server_dir();
+
         insert_server_entry(server_details);
     }
 
@@ -924,8 +969,17 @@ int main(int argc, char** argv) {
 
     std::cout << getServerDir(server_details.serverid()) <<std::endl;
     leveldb::Status status = leveldb::DB::Open(options, getServerDir(server_details.serverid()).c_str(), &db);
+    if(do_cache){
+        init_cache_dir(); //Create cache directory if it doesn't exist
+        leveldb::Status s_cache = leveldb::DB::Open(options, getCacheDir(server_details.serverid()).c_str(), &cache);
+        if(!s_cache.ok()){
+            do_cache = 0;
+            std::cout << "Unable to create Cache DB. Caching disabled." <<std::endl;
+        }
+    }
+    
     assert(status.ok());
-
+   
     if(isMaster) collect_db();      //collect all existing leveldb dbs and put in server0's db
 
     run_wifs_server();   
