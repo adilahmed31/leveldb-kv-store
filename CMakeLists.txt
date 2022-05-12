@@ -139,7 +139,10 @@ target_link_libraries(client_tester
   wifs_grpc_proto
   ${_REFLECTION}
   ${_GRPC_GRPCPP}
-  ${_PROTOBUF_LIBPROTOBUF})
+  ${_PROTOBUF_LIBPROTOBUF}
+  ${ZK_LIB}
+  ${ZK_LIB_MT_DEPS}
+  ${CHECK_LIB})
 
 # set zk config
 add_executable(set_zk_config "zk_config.cc")
