@@ -204,10 +204,13 @@ int merge_ldb(wifs::ServerDetails failed_server_details){
     leveldb::Options options;
     leveldb::DB* db_merge;
     options.create_if_missing = false; //This should never be missing
+    std::cout << "Trying to merge with DB at path :" << getServerDir(failed_server_id) << std::endl;
     leveldb::Status s = leveldb::DB::Open(options, getServerDir(failed_server_id), &db_merge);
 
     if(!s.ok()){
         std::cout << "Error opening DB of failed node" <<std::endl;
+        leveldb::Status status = leveldb::DestroyDB(getServerDir(failed_server_id), leveldb::Options());
+        std::experimental::filesystem::remove_all(getServerDir(failed_server_id));
         return -1;
     }
     leveldb::Iterator* iter = db_merge->NewIterator(leveldb::ReadOptions());
@@ -222,11 +225,14 @@ int merge_ldb(wifs::ServerDetails failed_server_details){
         deletebatch.Delete(iter->key());
     }
     db->Write(w,&writebatch);
+    if(do_cache) cache->Write(w,&writebatch);
     // std::cout << "Wrote entries from DB of server " <<failed_server_id<<std::endl;
     db_merge->Write(w,&deletebatch);
     // std::cout << "Deleted all entries from DB of server "<<failed_server_id<<std::endl;
     std::cout << "merged db of " <<failed_server_id << " into the current server\n";
     delete db_merge;
+    leveldb::Status status = leveldb::DestroyDB(getServerDir(failed_server_id), leveldb::Options());
+    std::experimental::filesystem::remove_all(getServerDir(failed_server_id));
     return 0;
 }
 
@@ -463,6 +469,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
 
         db_split->Write(w, &writebatch);
         db->Write(w, &deletebatch);
+        if(do_cache) cache->Write(w,&deletebatch);
         delete db_split; //close new db so it can be re-opened by the calling server
         reply->set_status(p2p::StatusRes_Status_PASS);
         std::cout << "splitting db with server "<< request->id() << std::endl;
@@ -751,7 +758,11 @@ void sigintHandler(int sig_num)
         framework->deleteNode()->deletingChildren()->forPath("/master");
     }
     framework->close();
-
+    if(do_cache){
+        delete cache;
+        leveldb::Status status = leveldb::DestroyDB(getCacheDir(server_details.serverid()), leveldb::Options());
+        std::experimental::filesystem::remove_all(getCacheDir(server_details.serverid()));
+    }
     delete db;
     std::exit(0);
 
@@ -802,11 +813,10 @@ void init_server_dir(){
 }
 
 void init_cache_dir(){
-    DIR* dir = opendir(getCacheDir(server_details.serverid()).c_str());
-    if (ENOENT == errno) {
-        mkdir(getCacheDir(server_details.serverid()).c_str(), 0777);
-    }
-    closedir(dir);
+    std::string server_dir = getServerDir(server_details.serverid());
+    std::string cache_dir = getCacheDir(server_details.serverid());
+    std::experimental::filesystem::remove_all(cache_dir);
+    std::experimental::filesystem::copy(server_dir, cache_dir,  std::experimental::filesystem::copy_options::recursive);
 }
 
 void ping_master_wrapper(p2p::ServerInit idreply){
@@ -877,10 +887,10 @@ void collect_db() {
         while ((ent = readdir(dir)) != NULL) {
             std::string serverdb = ent->d_name;
             if (serverdb.rfind(".server", 0) ==0){
-                // std::cout << serverdb.back() << std::endl;
+                // std::cout << serverdb.substr(7) << std::endl;
                 wifs::ServerDetails sd;
                 // std::string serverid = serverdb.back();
-                sd.set_serverid(serverdb.back() - '0');
+                sd.set_serverid(std::stoi(serverdb.substr(7))); //hardcoded value of 7 as that's the index at which .server ends
                 //not setting ip address - is that ok?
                 if (sd.serverid()!=0) merge_ldb(sd);
                 //not checking rc
@@ -935,6 +945,7 @@ int main(int argc, char** argv) {
         // and after getting server id from master.
         init_server_dir();
         
+        if (do_cache) init_cache_dir(); //Delete old cache and create new cache directory 
         //start p2p server
         init_p2p_server();
 
@@ -958,6 +969,8 @@ int main(int argc, char** argv) {
         // Create server path if it doesn't exist
         init_server_dir();
 
+        if (do_cache) init_cache_dir(); //Delete old cache and create new cache directory 
+
         insert_server_entry(server_details);
     }
 
@@ -975,7 +988,6 @@ int main(int argc, char** argv) {
     // std::cout << getServerDir(server_details.serverid()) <<std::endl;
     leveldb::Status status = leveldb::DB::Open(options, getServerDir(server_details.serverid()).c_str(), &db);
     if(do_cache){
-        init_cache_dir(); //Create cache directory if it doesn't exist
         leveldb::Status s_cache = leveldb::DB::Open(options, getCacheDir(server_details.serverid()).c_str(), &cache);
         if(!s_cache.ok()){
             do_cache = 0;

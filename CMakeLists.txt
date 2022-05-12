@@ -89,7 +89,7 @@ add_library(p2p_grpc_proto
 target_link_libraries(p2p_grpc_proto
   ${_REFLECTION}
   ${_GRPC_GRPCPP}
-  ${_PROTOBUF_LIBPROTOBUF})
+  ${_PROTOBUF_LIBPROTOBUF} )
 
 find_library(PTHREAD_LIB  NAMES pthread)
 find_library(LEVELDB_LIB  NAMES leveldb HINTS /usr/local/lib/)
@@ -129,6 +129,7 @@ target_link_libraries(server
   ${ZK_LIB}
   ${ZK_LIB_MT_DEPS}
   ${CHECK_LIB}
+  stdc++fs
   )
 
 # client manual, easy for manual testing. spin up server and then client
