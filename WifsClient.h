@@ -60,7 +60,7 @@ class WifsClient {
         Status status = stub_->wifs_GET(&context, request, &reply);
         server_map = std::map<long,wifs::ServerDetails>(reply.hash_server_map().begin(), reply.hash_server_map().end());
         int buffer_length = strlen(reply.val().c_str());
-        strncpy(val, reply.val().c_str(), buffer_length) ;
+        strcpy(val, reply.val().c_str()) ;
         return status.ok() ? 0 : -1;
     }
 
