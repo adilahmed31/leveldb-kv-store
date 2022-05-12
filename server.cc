@@ -468,13 +468,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
 
         db_split->Write(w, &writebatch);
         db->Write(w, &deletebatch);
-        if(do_cache){
-            leveldb::DB* cache_split;
-            leveldb::Status s = leveldb::DB::Open(options, getCacheDir(request->id()), &cache_split);
-            cache_split->Write(w,&writebatch);
-            delete cache_split;
-            cache->Write(w,&deletebatch);
-        }
+        if(do_cache) cache->Write(w,&deletebatch);
         delete db_split; //close new db so it can be re-opened by the calling server
         reply->set_status(p2p::StatusRes_Status_PASS);
         return grpc::Status::OK;
@@ -818,7 +812,7 @@ void init_cache_dir(){
     std::string server_dir = getServerDir(server_details.serverid());
     std::string cache_dir = getCacheDir(server_details.serverid());
     std::experimental::filesystem::remove_all(cache_dir);
-    std::experimental::filesystem::copy(server_dir, cache_dir);
+    std::experimental::filesystem::copy(server_dir, cache_dir,  std::experimental::filesystem::copy_options::recursive);
 }
 
 void ping_master_wrapper(p2p::ServerInit idreply){
