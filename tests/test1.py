@@ -7,7 +7,7 @@ import time
 
 #Client Steps
 #Step 1: Init the client
-client1 = Client()
+client = Client("c220g1-030604.wisc.cloudlab.us:2181")
 
 #Step 2: Perform the put operation
 client1.put("l1fsdf", "testing123")
