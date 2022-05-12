@@ -89,6 +89,8 @@ wifs::ServerDetails server_details;
 // changes to support write modes
 p2p::ServerConfig config;
 
+bool should_crash = false;
+
 bool isMaster = false;
 unique_ptr<ConservatorFramework> framework;
 sem_t mutex_allot_server_id;
@@ -220,7 +222,7 @@ int merge_ldb(wifs::ServerDetails failed_server_details){
     leveldb::WriteBatch deletebatch;
 
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    //write to batch
+        std::cout<<"moving back key "<<iter->key().ToString()<<"\n";
         writebatch.Put(iter->key(), iter->value());
         deletebatch.Delete(iter->key());
     }
@@ -455,6 +457,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
             int cur_key_hash = somehashfunction(iter->key().ToString());
             if(request->range_end() < this_range_end) {
                 if (cur_key_hash <= request->range_end() || cur_key_hash > this_range_end){
+                    std::cout<<"moving key "<<iter->key().ToString()<<"\n";
                     writebatch.Put(iter->key(), iter->value());
                     deletebatch.Delete(iter->key());
                 }
@@ -836,6 +839,7 @@ void split_db_wrapper(){
     splitrequest.set_range_end(somehashfunction(getP2PServerAddr(server_details)));
     if(client_stub_[successor_server_details.serverid()] == NULL) connect_with_peer(successor_server_details);
     splitrequest.set_id(server_details.serverid());
+    std::cout<<"asking successor "<< successor_server_details.serverid() <<"to split its db with me\n";
     grpc::Status s = client_stub_[successor_server_details.serverid()]->SplitDB(&context_split, splitrequest, &splitreply);
     if (splitreply.status() == p2p::StatusRes_Status_FAIL){
         std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
@@ -918,15 +922,17 @@ int main(int argc, char** argv) {
     In the current scheme, the new server has to inform the first server (0) about it's presence.
     First server adds new server to it's list and redirects future requests. 
     */
-
     if(argc > 1) {
-        // overwrite zk server address with the passed in value
-        zk_server_addr = std::string(argv[1]);
+        should_crash = true;
     }
+    // if(argc > 1) {
+    //     // overwrite zk server address with the passed in value
+    //     zk_server_addr = std::string(argv[1]);
+    // }
 
-    if(argc > 2) {
-        efs_mount_path = std::string(argv[2]);
-    }
+    // if(argc > 2) {
+    //     efs_mount_path = std::string(argv[2]);
+    // }
 
     //Ctrl + C handler
     signal(SIGINT, sigintHandler);
@@ -962,6 +968,11 @@ int main(int argc, char** argv) {
         split_db_wrapper();
 
         print_ring();
+
+        if(should_crash) {
+            std::cout<<"crashing after splitdb but before getting added to the ring\n";
+            exit(0);
+        }
 
         //initialize new server with the master and keep checking if master is alive
         init_server_and_watch_master(idreply);
