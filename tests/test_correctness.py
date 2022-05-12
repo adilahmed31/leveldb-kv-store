@@ -61,12 +61,7 @@ class Workloads(object):
         for key in self.kv:
             val = self.client.get(key)
             print("Checksum-")
-<<<<<<< HEAD
             assert hashlib.md5(self.kv[key].encode()).hexdigest() == hashlib.md5(val.encode()).hexdigest()
-=======
-            print(hashlib.md5(self.kv[key].encode()).hexdigest())
-            print(hashlib.md5(val.encode()).hexdigest())
->>>>>>> 18f23351511aa85460d013e93af2721adf888df5
 
 
 if __name__ == "__main__":
