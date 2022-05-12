@@ -328,7 +328,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     }
 
     grpc::Status PingMaster(ServerContext* context, const p2p::ServerInit* request, p2p::HeartBeat* reply) {
-        std::cout << "looks like server "<<request->id()<<" is ready"<<std::endl;
+        std::cout << "new server with id "<<request->id()<<" trying to join ring"<<std::endl;
         then = std::chrono::system_clock::now();
         wifs::ServerDetails hb_server_details;
         hb_server_details.set_serverid(request->id());
@@ -345,7 +345,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         sem_post(&mutex_allot_server_id);
 
         reply->set_id(next_poss_server_id);
-        // std::cout <<"peer id = " << next_poss_server_id << std::endl;
+        std::cout <<"new server request, alloting id = " << next_poss_server_id << std::endl;
 
         populate_hash_server_map(reply->mutable_servermap());
         return grpc::Status::OK;
@@ -362,12 +362,13 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         insert_server_entry(sd);
         
         request_copy.set_action(p2p::ServerInit_Action_INSERT);
+        std::cout<<"new server added: "<< request->id() <<"\n";
         broadcast_new_server_to_all(request_copy); //broadcast to the new server also, mode 0 for adding server ID
         
         // no need to start heartbeat here, as it is being started in PingMaster itself. 
         
         update_ring_id();
-        print_ring();
+        // print_ring();
         return grpc::Status::OK;
     }
 
@@ -379,14 +380,13 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         if(request->action() == p2p::ServerInit_Action_INSERT){
             insert_server_entry(sd);
             std::cout << "new server added: " << request->id() << std::endl;
-
         }
         else{
             remove_server_entry(sd);
             std::cout << "server removed: " << request->id() << std::endl;
         }
         update_ring_id();
-        print_ring();
+        // print_ring();
         return grpc::Status::OK;
     }
 
@@ -600,7 +600,7 @@ class WifsServiceImplementation final : public WIFS::Service {
 //mode 0 => insert server_id (node join), mode 1 => delete server_id (node exit)
 void broadcast_new_server_to_all(const p2p::ServerInit idrequest){
   for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
-    if (it->second.serverid() != MASTER_ID && it->second.serverid() != idrequest.id()) { //don't broadcast to self (server 0)
+    if (it->second.serverid() != MASTER_ID) { //don't broadcast to self (server 0)
         if(client_stub_[it->second.serverid()] == NULL) connect_with_peer(it->second);
         
         ClientContext context;
@@ -643,7 +643,8 @@ void heartbeat_helper(wifs::ServerDetails hb_server_details, int max_retries) {
         grpc::Status s = client_stub_[hb_server_details.serverid()]->Ping(&context, hbrequest, &hbreply);
         if(s.ok()) {
             retry_count = 0;
-            std::cout<<".";
+            printf(".");
+            fflush(stdout);
         } else { 
             // std::cout<<hb_server_details.serverid()<<"'s HEARTBEAT FAILED\n";
             retry_count++;
@@ -722,7 +723,7 @@ void find_master_server() {
     MASTER_ID = server_details.serverid();
     MASTER_IP = server_details.ipaddr();
     
-    std::cout<<"looks like there is no current master, I'll become one\n";
+    std::cout<<"no current master, becoming one!!!\n";
     // will go through only the first time
     ret = framework->create()->forPath("/next_poss_server_id", (char *) "1");
     // if (ret == ZNODEEXISTS) {
@@ -734,7 +735,8 @@ void watch_for_master() {
     while(MASTER_ID != server_details.serverid()) {
         auto now = std::chrono::system_clock::now();
         std::chrono::duration<double> diff = now - then;
-        // std::cout<<"Time elapsed between latest ping from master till now = "<<diff.count()<<std::endl;
+        printf(",");
+        fflush(stdout);
         if(diff.count() > 0.5) {
             // std::cout<<"----FINDING NEW MASTER----"<<std::endl;
             std::cout<<"finding new master..."<<std::endl;
@@ -958,7 +960,7 @@ int main(int argc, char** argv) {
         //Contact successor and transfer keys belonging to current node
         split_db_wrapper();
 
-        print_ring();
+        // print_ring();
 
         //initialize new server with the master and keep checking if master is alive
         init_server_and_watch_master(idreply);
