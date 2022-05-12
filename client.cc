@@ -19,6 +19,7 @@ static struct options {
 } options;
 
 void init_zk_connection() {
+    zoo_set_debug_level((ZooLogLevel)0);
     ConservatorFrameworkFactory factory = ConservatorFrameworkFactory();
     framework = factory.newClient(zk_server_ip.c_str(),1000);
     framework->start();
@@ -26,14 +27,14 @@ void init_zk_connection() {
 
 void populate_tmp_master_server_details(wifs::ServerDetails &master_details) {
     if(framework->checkExists()->forPath("/master") == ZOK) {
-        std::cout<<"ZOK\n";
+        // std::cout<<"ZOK\n";
         std::string master_server_details_str = framework->getData()->forPath("/master");
-        std::cout<<master_server_details_str<<"\n";
+        // std::cout<<master_server_details_str<<"\n";
         int delim_pos = (int) master_server_details_str.find(":");
         master_details.set_ipaddr(master_server_details_str.substr(0, delim_pos));
-        std::cout<<master_details.ipaddr()<<"\n";
+        // std::cout<<master_details.ipaddr()<<"\n";
         master_details.set_serverid(atoi(master_server_details_str.substr(delim_pos+1, 5).c_str()) - 50060);
-        std::cout<<master_details.serverid()<<"\n";
+        // std::cout<<master_details.serverid()<<"\n";
         return;
     }
     std::cout<<"retry findng master config in ZK\n";
@@ -45,7 +46,7 @@ void init_tmp_master(){
     // needs to know master 
     wifs::ServerDetails master_details;
     populate_tmp_master_server_details(master_details);
-    std::cout<<getP2PServerAddr(master_details)<<"\n";
+    // std::cout<<getP2PServerAddr(master_details)<<"\n";
     server_map[somehashfunction(getP2PServerAddr(master_details))] = master_details;
 }
 
@@ -57,7 +58,7 @@ void reset_client_cache() {
 extern "C" {;
     int set_zk_ip(char* zk_ip){
         zk_server_ip = std::string(zk_ip);
-        std::cout << zk_server_ip <<std::endl;
+        // std::cout << zk_server_ip <<std::endl;
     };
 
     int init(wifs::ServerDetails details) {
