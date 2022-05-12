@@ -210,7 +210,12 @@ int merge_ldb(wifs::ServerDetails failed_server_details){
     if(!s.ok()){
         std::cout << "Error opening DB of failed node" <<std::endl;
         leveldb::Status status = leveldb::DestroyDB(getServerDir(failed_server_id), leveldb::Options());
-        std::experimental::filesystem::remove_all(getServerDir(failed_server_id));
+        try{
+            std::experimental::filesystem::remove_all(getServerDir(failed_server_id));
+        }
+        catch(const std::exception& e){
+            std::cout << "Could not delete Server directory : " << getServerDir(failed_server_id) <<std::endl;
+        }
         return -1;
     }
 
@@ -232,7 +237,12 @@ int merge_ldb(wifs::ServerDetails failed_server_details){
     std::cout << "Deleted all entries from DB of server "<<failed_server_id<<std::endl;
     delete db_merge;
     leveldb::Status status = leveldb::DestroyDB(getServerDir(failed_server_id), leveldb::Options());
-    std::experimental::filesystem::remove_all(getServerDir(failed_server_id));
+    try{
+         std::experimental::filesystem::remove_all(getServerDir(failed_server_id));
+    }
+    catch(const std::exception& e) {
+        std::cout <<" Could not delete server directory " << getServerDir(failed_server_id) << std::endl;
+    }
     return 0;
 }
 
@@ -764,7 +774,13 @@ void sigintHandler(int sig_num)
     if(do_cache){
         delete cache;
         leveldb::Status status = leveldb::DestroyDB(getCacheDir(server_details.serverid()), leveldb::Options());
-        std::experimental::filesystem::remove_all(getCacheDir(server_details.serverid()));
+        try{
+            std::experimental::filesystem::remove_all(getCacheDir(server_details.serverid()));
+        }
+        catch(const std::exception& e){
+            std::cout << "Could not delete Cache directory : " << getCacheDir(server_details.serverid()) <<std::endl;
+        }
+        
     }
     delete db;
     std::exit(0);
