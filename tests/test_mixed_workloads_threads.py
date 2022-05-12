@@ -45,7 +45,7 @@ class Workloads(object):
             else:
                 kv[self.generate_seq_string(self.key_size)] = self.generate_rand_string(self.val_size)
 
-        print(f"Generated {num_keys} key value pairs")
+        # print(f"Generated {num_keys} key value pairs")
         return kv
 
     #One client, puts all keys and values in kv
@@ -53,9 +53,9 @@ class Workloads(object):
         reads = random.choices([True, False], weights = [100 - percentage_writes, percentage_writes], k=self.num_keys)
         num_reads = sum(reads)
         num_writes = self.num_keys - num_reads
-        print("Number of reads: ", num_reads)
-        print("Number of writes: ", num_writes)
-        print(f"Write Percentage: Expected - {1.0*percentage_writes}%, Actual - {100*num_writes/num_keys}%")
+        # print("Number of reads: ", num_reads)
+        # print("Number of writes: ", num_writes)
+        # print(f"Write Percentage: Expected - {1.0*percentage_writes}%, Actual - {100*num_writes/num_keys}%")
 
         #Put all keys we want to test get on
         for key in list(compress(self.kv.keys(), reads)):
