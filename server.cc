@@ -93,6 +93,10 @@ bool isMaster = false;
 unique_ptr<ConservatorFramework> framework;
 sem_t mutex_allot_server_id;
 
+sem_t split_db_sem;
+sem_t split_db_info_mutex;
+int split_db_info = -1;
+
 int timestamp = 0; 
 
 int ring_id = 0;
@@ -122,6 +126,14 @@ void heartbeat_helper(wifs::ServerDetails heartbeat_server_details, int max_retr
 void heartbeat(wifs::ServerDetails heartbeat_server_id);
 
 void broadcast_new_server_to_all(const p2p::ServerInit);
+
+void check_and_release_split_db_sem(int id) {
+    // release the split mutex if the new node failed after splitting
+    sem_wait(&split_db_info_mutex);
+    if(id == split_db_info) sem_post(&split_db_sem);
+    split_db_info = -1;
+    sem_post(&split_db_info_mutex);
+}
 
 auto getServerIteratorInMap(wifs::ServerDetails target_server_details) -> std::map<long,wifs::ServerDetails>::iterator{
     long hash_val = somehashfunction(getP2PServerAddr(target_server_details));
@@ -199,6 +211,8 @@ void update_ring_id(){
 
 //merges DB of server ID provided as an argument into the current node's DB
 int merge_ldb(wifs::ServerDetails failed_server_details){
+    check_and_release_split_db_sem(failed_server_details.serverid());
+
     int failed_server_id = failed_server_details.serverid();
     std::cout << "Merging DB of " <<failed_server_id << " into DB of node "<< server_details.serverid() <<std::endl;
     leveldb::Options options;
@@ -393,7 +407,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         if(request->action() == p2p::ServerInit_Action_INSERT){
             insert_server_entry(sd);
             std::cout << "new server added: " << request->id() << std::endl;
-
+            check_and_release_split_db_sem(request->id());
         }
         else{
             remove_server_entry(sd);
@@ -442,6 +456,25 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     grpc::Status SplitDB(ServerContext* context, const p2p::SplitReq* request, p2p::StatusRes* reply){
         std::cout << "Server "<< request->id() <<" asked this server to split database" << std::endl;
         
+        // only 1 split shuld happen at a time
+        sem_wait(&split_db_sem);
+        sem_wait(&split_db_info_mutex);
+        split_db_info = request->id();
+        sem_post(&split_db_info_mutex);
+
+
+        // check again if you are the latest successor.
+        wifs::ServerDetails caller_server_details;
+        caller_server_details.set_ipaddr(request->ipaddr());
+        caller_server_details.set_serverid(request->id());
+        wifs::ServerDetails new_successor_sd = find_successor(caller_server_details);
+        if(new_successor_sd.serverid() != server_details.serverid()) {
+            ClientContext context_split;
+            if(client_stub_[new_successor_sd.serverid()] == NULL) connect_with_peer(new_successor_sd);
+            return client_stub_[new_successor_sd.serverid()]->SplitDB(&context_split, *request, reply);
+        }
+        
+
         leveldb::Options options;
         // when the new server has just come up, though it has created the folder, it hasn't yet spun up 
         // a levelDB instance. we need to have this create flag for the writes to go through.
@@ -496,7 +529,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     //The batched write is applied to the successor's DB
     grpc::Status MergeDB(ServerContext* context, const p2p::ServerInit* request, p2p::StatusRes* reply){
         std::cout << "Master asked this server to merge with Server "<< request->id() <<std::endl;
-        
+
         wifs::ServerDetails sd;
         sd.set_serverid(request->id());
         sd.set_ipaddr(request->ipaddr());
@@ -615,13 +648,13 @@ class WifsServiceImplementation final : public WIFS::Service {
 //mode 0 => insert server_id (node join), mode 1 => delete server_id (node exit)
 void broadcast_new_server_to_all(const p2p::ServerInit idrequest){
   for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
-    if (it->second.serverid() != MASTER_ID){ //don't broadcast to self (server 0)
+    if (it->second.serverid() != MASTER_ID) { //don't broadcast to self (server 0)
         if(client_stub_[it->second.serverid()] == NULL) connect_with_peer(it->second);
         
         ClientContext context;
         p2p::HeartBeat hbreply;
         grpc::Status s = client_stub_[it->second.serverid()]->BroadcastServerId(&context, idrequest, &hbreply);
-    }
+    } else check_and_release_split_db_sem(idrequest.id());
   }
 }
 
@@ -851,6 +884,7 @@ void split_db_wrapper(){
     splitrequest.set_range_end(somehashfunction(getP2PServerAddr(server_details)));
     if(client_stub_[successor_server_details.serverid()] == NULL) connect_with_peer(successor_server_details);
     splitrequest.set_id(server_details.serverid());
+    splitrequest.set_ipaddr(server_details.ipaddr());
     grpc::Status s = client_stub_[successor_server_details.serverid()]->SplitDB(&context_split, splitrequest, &splitreply);
     if (splitreply.status() == p2p::StatusRes_Status_FAIL){
         std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
@@ -946,6 +980,8 @@ int main(int argc, char** argv) {
     signal(SIGINT, sigintHandler);
     sem_init(&mutex_allot_server_id, 0, 1);
     sem_init(&mutex_write_batch, 0, 1);
+    sem_init(&split_db_sem, 0, 1);
+    sem_init(&split_db_info_mutex, 0, 1);
     init_zk_connection();
 
     // Check if master is active or not. If file exists, then there's master, else, no master, so create file and become master
