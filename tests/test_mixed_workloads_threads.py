@@ -81,7 +81,7 @@ if __name__ == "__main__":
     num_keys = 100
     for i in range(num_clients):
         client[i] = Client("c220g1-030604.wisc.cloudlab.us:2181")
-        test_rand_workloads[i] = Workloads(client[i], num_keys)    
+        test_rand_workloads.append(Workloads(client[i], num_keys))    
     for i in range(num_clients):
         threading.Thread(target=test_rand_workloads[i].test_write_perc(write_percent))
    
