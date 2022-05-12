@@ -239,12 +239,8 @@ int merge_ldb(wifs::ServerDetails failed_server_details){
     leveldb::WriteBatch writebatch;
     leveldb::WriteBatch deletebatch;
 
-    struct timeval begin, end;
-    gettimeofday(&begin, 0);
-    int local_merge_recs_count = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     //write to batch
-        local_merge_recs_count++;
         writebatch.Put(iter->key(), iter->value());
         deletebatch.Delete(iter->key());
     }
@@ -257,12 +253,7 @@ int merge_ldb(wifs::ServerDetails failed_server_details){
     // std::cout << "merged db of " <<failed_server_id << " into the current server\n";
     delete db_merge;
 
-    gettimeofday(&end, 0);
-    long seconds = end.tv_sec - begin.tv_sec;
-    long microseconds = end.tv_usec - begin.tv_usec;
-    double elapsed = seconds + microseconds*1e-6;
-    cout<<"merged "<<local_merge_recs_count<<" recs in "<<elapsed<<"\n";
-
+    
     leveldb::Status status = leveldb::DestroyDB(getServerDir(failed_server_id), leveldb::Options());
     try{
          std::experimental::filesystem::remove_all(getServerDir(failed_server_id));
@@ -514,23 +505,18 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         int this_range_end = getServerIteratorInMap(server_details)->first;
         
         //Iterate over old DB and create batches for operations
-        int local_split_keys_count = 0;
-        struct timeval begin, end;
-        gettimeofday(&begin, 0);
         for(iter->SeekToFirst(); iter->Valid(); iter->Next()){
             int cur_key_hash = somehashfunction(iter->key().ToString());
             if(request->range_end() < this_range_end) {
                 if (cur_key_hash <= request->range_end() || cur_key_hash > this_range_end){
                     writebatch.Put(iter->key(), iter->value());
                     deletebatch.Delete(iter->key());
-                    local_split_keys_count++;
                 }
             }
             else {
                 if (cur_key_hash > this_range_end && cur_key_hash <= request->range_end()){
                     writebatch.Put(iter->key(), iter->value());
                     deletebatch.Delete(iter->key());
-                    local_split_keys_count++;
                 }
             }
         }
@@ -539,12 +525,6 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         db->Write(w, &deletebatch);
         if(do_cache) cache->Write(w,&deletebatch);
         delete db_split; //close new db so it can be re-opened by the calling server
-
-        gettimeofday(&end, 0);
-        long seconds = end.tv_sec - begin.tv_sec;
-        long microseconds = end.tv_usec - begin.tv_usec;
-        double elapsed = seconds + microseconds*1e-6;
-        std::cout<<"split "<<local_split_keys_count<<" keys in "<< elapsed <<"\n";
 
         reply->set_status(p2p::StatusRes_Status_PASS);
         // std::cout << "splitting db with server "<< request->id() << std::endl;
