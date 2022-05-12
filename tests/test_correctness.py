@@ -65,7 +65,7 @@ class Workloads(object):
         print("Correctness Test Passed")
 
 if __name__ == "__main__":
-    client = Client("http://c220g1-030604.wisc.cloudlab.us:2181/")
+    client = Client("c220g1-030604.wisc.cloudlab.us:2181")
     num_keys = 100
     test_rand_workload = Workloads(client, num_keys)
     test_rand_workload.send_puts()

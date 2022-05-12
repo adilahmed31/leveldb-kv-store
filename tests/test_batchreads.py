@@ -62,7 +62,7 @@ class Workloads(object):
         print(f"Time for batch gets (single client): {time_get}, batchread size: {batchread_size}")
 
 if __name__ == "__main__":
-    client = Client()
+    client = Client("c220g1-030604.wisc.cloudlab.us:2181")
     num_keys = 20
     prefix = "kalyani"
 

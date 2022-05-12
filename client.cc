@@ -10,16 +10,16 @@
 #include <conservator/ExistsBuilder.h>
 
 unique_ptr<ConservatorFramework> framework;
-char* zk_server_ip = "127.0.0.1:2181";
+std::string zk_server_ip = "127.0.0.1:2181";
 
 static struct options {
     WifsClient* wifsclient[MAX_NUM_SERVERS];
     int show_help;
 } options;
 
-void init_zk_connection(char* zk_server_ip) {
+void init_zk_connection() {
     ConservatorFrameworkFactory factory = ConservatorFrameworkFactory();
-    framework = factory.newClient(zk_server_ip,1000);
+    framework = factory.newClient(zk_server_ip.c_str(),1000);
     framework->start();
 }
 
@@ -54,7 +54,8 @@ void reset_client_cache() {
 
 extern "C" {;
     int set_zk_ip(char* zk_ip){
-        zk_server_ip = zk_ip;
+        zk_server_ip = std::string(zk_ip);
+        std::cout << zk_server_ip <<std::endl;
     };
 
     int init(wifs::ServerDetails details) {
@@ -63,7 +64,7 @@ extern "C" {;
 
     int do_get(char* key, char* val) { //mode 0 for default, 1 for batch reads
         if (server_map.empty()){
-            init_zk_connection(zk_server_ip);
+            init_zk_connection();
             init_tmp_master();
         }
         auto it = server_map.lower_bound(somehashfunction(std::string(key)));
@@ -79,7 +80,7 @@ extern "C" {;
 
     int do_getRange(char* prefix, std::vector<wifs::KVPair>* batch_read) { 
         if (server_map.empty()){
-            init_zk_connection(zk_server_ip);
+            init_zk_connection();
             init_tmp_master();
         }
         auto it = server_map.lower_bound(somehashfunction(std::string(prefix)));
@@ -96,7 +97,7 @@ extern "C" {;
     int do_getRange_nilext(char* prefix){ 
         //just for performance testing
         if (server_map.empty()){
-            init_zk_connection(zk_server_ip);
+            init_zk_connection();
             init_tmp_master();
         }
         std::vector<wifs::KVPair> batch_read;
@@ -114,7 +115,7 @@ extern "C" {;
 
     int do_put(char* key, char* val) {
         if (server_map.empty()){
-            init_zk_connection(zk_server_ip);
+            init_zk_connection();
             init_tmp_master();
         }
         auto it = server_map.lower_bound(somehashfunction(std::string(key)));
@@ -130,7 +131,7 @@ extern "C" {;
 
     int do_delete(char* key) {
         if (server_map.empty()){
-            init_zk_connection(zk_server_ip);
+            init_zk_connection();
             init_tmp_master();
         }
         auto it = server_map.lower_bound(somehashfunction(std::string(key)));

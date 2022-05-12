@@ -98,7 +98,7 @@ class DynamoWorkloads(object):
 
 if __name__ == "__main__":
     num_keys = 1000
-    client = Client("http://c220g1-030604.wisc.cloudlab.us:2181/")
+    client = Client("c220g1-030604.wisc.cloudlab.us:2181")
     test_rand_workload = DynamoWorkloads(num_keys)
     test_rand_workload.send_puts()
     test_rand_workload.send_gets()

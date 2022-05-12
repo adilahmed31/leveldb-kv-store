@@ -7,7 +7,7 @@ import time
 
 #Client Steps
 #Step 1: Init the client
-client = Client("http://c220g1-030604.wisc.cloudlab.us:2181/")
+client = Client("c220g1-030604.wisc.cloudlab.us:2181")
 
 #Step 2: Perform the put operation
 client1.put("delete_test", "testing123")
