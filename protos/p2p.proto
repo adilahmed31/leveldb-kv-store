@@ -59,6 +59,7 @@ message StatusRes {
 message SplitReq {
     int32 range_end = 1;
     int32 id = 2;
+    string ipaddr = 3;
 }
 
 message ServerInit {

@@ -93,6 +93,10 @@ bool isMaster = false;
 unique_ptr<ConservatorFramework> framework;
 sem_t mutex_allot_server_id;
 
+sem_t split_db_sem;
+sem_t split_db_info_mutex;
+int split_db_info = -1;
+
 int timestamp = 0; 
 
 int ring_id = 0;
@@ -122,6 +126,14 @@ void heartbeat_helper(wifs::ServerDetails heartbeat_server_details, int max_retr
 void heartbeat(wifs::ServerDetails heartbeat_server_id);
 
 void broadcast_new_server_to_all(const p2p::ServerInit);
+
+void check_and_release_split_db_sem(int id) {
+    // release the split mutex if the new node failed after splitting
+    sem_wait(&split_db_info_mutex);
+    if(id == split_db_info) sem_post(&split_db_sem);
+    split_db_info = -1;
+    sem_post(&split_db_info_mutex);
+}
 
 auto getServerIteratorInMap(wifs::ServerDetails target_server_details) -> std::map<long,wifs::ServerDetails>::iterator{
     long hash_val = somehashfunction(getP2PServerAddr(target_server_details));
@@ -199,6 +211,8 @@ void update_ring_id(){
 
 //merges DB of server ID provided as an argument into the current node's DB
 int merge_ldb(wifs::ServerDetails failed_server_details){
+    check_and_release_split_db_sem(failed_server_details.serverid());
+
     int failed_server_id = failed_server_details.serverid();
     // std::cout << "Merging DB of " <<failed_server_id << " into DB of node "<< server_details.serverid() <<std::endl;
     leveldb::Options options;
@@ -210,9 +224,15 @@ int merge_ldb(wifs::ServerDetails failed_server_details){
     if(!s.ok()){
         // std::cout << "Error opening DB of failed node" <<std::endl;
         leveldb::Status status = leveldb::DestroyDB(getServerDir(failed_server_id), leveldb::Options());
-        std::experimental::filesystem::remove_all(getServerDir(failed_server_id));
+        try{
+            std::experimental::filesystem::remove_all(getServerDir(failed_server_id));
+        }
+        catch(const std::exception& e){
+            // std::cout << "Could not delete Server directory : " << getServerDir(failed_server_id) <<std::endl;
+        }
         return -1;
     }
+
     leveldb::Iterator* iter = db_merge->NewIterator(leveldb::ReadOptions());
 
     leveldb::WriteOptions w;
@@ -232,7 +252,12 @@ int merge_ldb(wifs::ServerDetails failed_server_details){
     // std::cout << "merged db of " <<failed_server_id << " into the current server\n";
     delete db_merge;
     leveldb::Status status = leveldb::DestroyDB(getServerDir(failed_server_id), leveldb::Options());
-    std::experimental::filesystem::remove_all(getServerDir(failed_server_id));
+    try{
+         std::experimental::filesystem::remove_all(getServerDir(failed_server_id));
+    }
+    catch(const std::exception& e) {
+        // std::cout <<" Could not delete server directory " << getServerDir(failed_server_id) << std::endl;
+    }
     return 0;
 }
 
@@ -251,6 +276,7 @@ void execute_local_put(const wifs::PutReq* request, wifs::PutRes* reply) {
     
     sem_wait(&mutex_write_batch); // acquire the lock
     global_write_batch.Put(request->key(), request->val().c_str());
+    // std::cout << "request->key() " << request->key() << "request->val().c_str()" << request->val().c_str() << std::endl;
     if(write_batch_counter >= batch_size - 1) {
         if(do_cache){
             leveldb::Status s_cache = cache->Write(write_options, &global_write_batch);
@@ -259,9 +285,11 @@ void execute_local_put(const wifs::PutReq* request, wifs::PutRes* reply) {
         leveldb::Status s_remote = db->Write(write_options, &global_write_batch);
         global_write_batch.Clear(); // release the lock
         write_batch_counter = 0;
+        // std::cout << "s_remote.ok() " << s_remote.ok() << std::endl;
         reply->set_status(s_remote.ok() ? wifs::PutRes_Status_PASS : wifs::PutRes_Status_FAIL);
     } else {
         write_batch_counter++;
+        // std::cout << "write batch count " << write_batch_counter << std::endl;
         reply->set_status(wifs::PutRes_Status_PASS);
     }
     sem_post(&mutex_write_batch);
@@ -292,9 +320,10 @@ void get_as_per_mode(const wifs::GetReq* request, wifs::GetRes* reply){
         else{
             it = db->NewIterator(options);
         }
-        leveldb::Slice start_key = filter_wildcard(request->key().c_str());
+        std::string sk = filter_wildcard(request->key().c_str());
+        leveldb::Slice start_key = sk;
         for (it->Seek(start_key); it->Valid(); it->Next()) {
-            if(it->key().ToString().substr(0,config.prefix_length()) != start_key ) break;
+            if(it->key().ToString().substr(0,config.prefix_length()) != sk ) break;
             // std::cout << "Found key: " << it->key().ToString() << std::endl;
             wifs::KVPair* kv_pair = reply->add_kvpairs();
             kv_pair->set_key(it->key().ToString());
@@ -380,6 +409,7 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         if(request->action() == p2p::ServerInit_Action_INSERT){
             insert_server_entry(sd);
             // std::cout << "new server added: " << request->id() << std::endl;
+            check_and_release_split_db_sem(request->id());
         }
         else{
             remove_server_entry(sd);
@@ -428,6 +458,25 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     grpc::Status SplitDB(ServerContext* context, const p2p::SplitReq* request, p2p::StatusRes* reply){
         // std::cout << "Server "<< request->id() <<" asked this server to split database" << std::endl;
         
+        // only 1 split shuld happen at a time
+        sem_wait(&split_db_sem);
+        sem_wait(&split_db_info_mutex);
+        split_db_info = request->id();
+        sem_post(&split_db_info_mutex);
+
+
+        // check again if you are the latest successor.
+        wifs::ServerDetails caller_server_details;
+        caller_server_details.set_ipaddr(request->ipaddr());
+        caller_server_details.set_serverid(request->id());
+        wifs::ServerDetails new_successor_sd = find_successor(caller_server_details);
+        if(new_successor_sd.serverid() != server_details.serverid()) {
+            ClientContext context_split;
+            if(client_stub_[new_successor_sd.serverid()] == NULL) connect_with_peer(new_successor_sd);
+            return client_stub_[new_successor_sd.serverid()]->SplitDB(&context_split, *request, reply);
+        }
+        
+
         leveldb::Options options;
         // when the new server has just come up, though it has created the folder, it hasn't yet spun up 
         // a levelDB instance. we need to have this create flag for the writes to go through.
@@ -437,7 +486,9 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         leveldb::WriteBatch writebatch; //batched writes to new db
         leveldb::WriteBatch deletebatch; //batched deletes from old db
         //Iterator over DB of old node
-        leveldb::Iterator* iter = db->NewIterator(ReadOptions());
+        leveldb::Iterator* iter;
+        if(do_cache) iter = cache->NewIterator(ReadOptions());
+        else iter = db->NewIterator(ReadOptions());
         
         //Open new DB for joined node
         leveldb::Status s = leveldb::DB::Open(options, getServerDir(request->id()), &db_split);
@@ -607,7 +658,7 @@ void broadcast_new_server_to_all(const p2p::ServerInit idrequest){
         ClientContext context;
         p2p::HeartBeat hbreply;
         grpc::Status s = client_stub_[it->second.serverid()]->BroadcastServerId(&context, idrequest, &hbreply);
-    }
+    } else check_and_release_split_db_sem(idrequest.id());
   }
 }
 
@@ -737,7 +788,7 @@ void watch_for_master() {
         auto now = std::chrono::system_clock::now();
         std::chrono::duration<double> diff = now - then;
         // printf(",");
-        fflush(stdout);
+        // fflush(stdout);
         if(diff.count() > 3) {
             // std::cout<<"----FINDING NEW MASTER----"<<std::endl;
             // std::cout<<"finding new master..."<<std::endl;
@@ -755,7 +806,7 @@ void watch_for_master() {
 void sigintHandler(int sig_num)
 {
     std::cerr << "sigkill issued...\n";
-
+    update_pending_writes();
     if(isMaster) {
         // delete master file in zk
         framework->deleteNode()->deletingChildren()->forPath("/master");
@@ -764,7 +815,13 @@ void sigintHandler(int sig_num)
     if(do_cache){
         delete cache;
         leveldb::Status status = leveldb::DestroyDB(getCacheDir(server_details.serverid()), leveldb::Options());
-        std::experimental::filesystem::remove_all(getCacheDir(server_details.serverid()));
+        try{
+            std::experimental::filesystem::remove_all(getCacheDir(server_details.serverid()));
+        }
+        catch(const std::exception& e){
+            // std::cout << "Could not delete Cache directory : " << getCacheDir(server_details.serverid()) <<std::endl;
+        }
+        
     }
     delete db;
     kill(getpid(), SIGTERM);
@@ -835,6 +892,7 @@ void split_db_wrapper(){
     splitrequest.set_range_end(somehashfunction(getP2PServerAddr(server_details)));
     if(client_stub_[successor_server_details.serverid()] == NULL) connect_with_peer(successor_server_details);
     splitrequest.set_id(server_details.serverid());
+    splitrequest.set_ipaddr(server_details.ipaddr());
     grpc::Status s = client_stub_[successor_server_details.serverid()]->SplitDB(&context_split, splitrequest, &splitreply);
     if (splitreply.status() == p2p::StatusRes_Status_FAIL){
         // std::cout << "Successor could not sync" <<std::endl; //TODO (Handle failure)
@@ -877,8 +935,8 @@ void get_config() {
     config.set_num_batch(stoi(values[1]));
     config.set_prefix_length(stoi(values[2]));
     // std::cout << config.mode() <<"  " <<config.num_batch() << "  " <<config.prefix_length() << std::endl;
-    //Update caching based on value of config
-    do_cache = config.mode() == p2p::ServerConfig_Mode_WRITE ? 0 : 1;
+    //Update caching based on value of config ; UPDATE:  setting caching to 1 always so commented out the next line
+    // do_cache = config.mode() == p2p::ServerConfig_Mode_WRITE ? 0 : 1;
 }
 
 void collect_db() {
@@ -931,6 +989,8 @@ int main(int argc, char** argv) {
     signal(SIGINT, sigintHandler);
     sem_init(&mutex_allot_server_id, 0, 1);
     sem_init(&mutex_write_batch, 0, 1);
+    sem_init(&split_db_sem, 0, 1);
+    sem_init(&split_db_info_mutex, 0, 1);
     init_zk_connection();
 
     // Check if master is active or not. If file exists, then there's master, else, no master, so create file and become master
@@ -947,7 +1007,6 @@ int main(int argc, char** argv) {
         // and after getting server id from master.
         init_server_dir();
         
-        if (do_cache) init_cache_dir(); //Delete old cache and create new cache directory 
         //start p2p server
         init_p2p_server();
 
@@ -959,7 +1018,9 @@ int main(int argc, char** argv) {
 
         //Contact successor and transfer keys belonging to current node
         split_db_wrapper();
-
+        
+        if (do_cache) init_cache_dir(); //Delete old cache and create new cache directory 
+        
         // print_ring();
 
         //initialize new server with the master and keep checking if master is alive
