@@ -263,7 +263,10 @@ void execute_local_put(const wifs::PutReq* request, wifs::PutRes* reply) {
 void update_pending_writes() {
     leveldb::WriteOptions write_options;
     sem_wait(&mutex_write_batch);
-    cache->Write(write_options, &global_write_batch);
+    if(do_cache){
+        std::cout<<"Caching enabled!"<<std::endl;
+        cache->Write(write_options, &global_write_batch);
+    }
     db->Write(write_options, &global_write_batch);
     global_write_batch.Clear();
     write_batch_counter = 0;
@@ -858,7 +861,7 @@ void get_config() {
     config.set_prefix_length(stoi(values[2]));
     std::cout << config.mode() <<"  " <<config.num_batch() << "  " <<config.prefix_length() << std::endl;
     //Update caching based on value of config
-    do_cache = config.mode() == 2 ? 0 : 1;
+    do_cache = config.mode() == p2p::ServerConfig_Mode_WRITE ? 0 : 1;
 }
 
 void collect_db() {
@@ -907,7 +910,7 @@ int main(int argc, char** argv) {
     }
 
     //Ctrl + C handler
-   // signal(SIGINT, sigintHandler);
+    signal(SIGINT, sigintHandler);
     sem_init(&mutex_allot_server_id, 0, 1);
     sem_init(&mutex_write_batch, 0, 1);
     init_zk_connection();
