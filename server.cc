@@ -213,6 +213,7 @@ int merge_ldb(wifs::ServerDetails failed_server_details){
         std::experimental::filesystem::remove_all(getServerDir(failed_server_id));
         return -1;
     }
+
     leveldb::Iterator* iter = db_merge->NewIterator(leveldb::ReadOptions());
 
     leveldb::WriteOptions w;
@@ -440,7 +441,9 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
         leveldb::WriteBatch writebatch; //batched writes to new db
         leveldb::WriteBatch deletebatch; //batched deletes from old db
         //Iterator over DB of old node
-        leveldb::Iterator* iter = db->NewIterator(ReadOptions());
+        leveldb::Iterator* iter;
+        if(do_cache) iter = cache->NewIterator(ReadOptions());
+        else iter = db->NewIterator(ReadOptions());
         
         //Open new DB for joined node
         leveldb::Status s = leveldb::DB::Open(options, getServerDir(request->id()), &db_split);
@@ -875,8 +878,8 @@ void get_config() {
     config.set_num_batch(stoi(values[1]));
     config.set_prefix_length(stoi(values[2]));
     std::cout << config.mode() <<"  " <<config.num_batch() << "  " <<config.prefix_length() << std::endl;
-    //Update caching based on value of config
-    do_cache = config.mode() == p2p::ServerConfig_Mode_WRITE ? 0 : 1;
+    //Update caching based on value of config ; UPDATE:  setting caching to 1 always so commented out the next line
+    // do_cache = config.mode() == p2p::ServerConfig_Mode_WRITE ? 0 : 1;
 }
 
 void collect_db() {
