@@ -765,7 +765,7 @@ void watch_for_master() {
 void sigintHandler(int sig_num)
 {
     std::cerr << "----CLEAN SHUTDOWN----\n";
-
+    update_pending_writes();
     if(isMaster) {
         // delete master file in zk
         framework->deleteNode()->deletingChildren()->forPath("/master");
