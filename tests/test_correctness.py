@@ -60,19 +60,19 @@ class Workloads(object):
         
         for key in self.kv:
             val = self.client.get(key)
-            print("Checksum-")
             assert hashlib.md5(self.kv[key].encode()).hexdigest() == hashlib.md5(val.encode()).hexdigest()
 
+        print("Correctness Test Passed")
 
 if __name__ == "__main__":
     client = Client()
     num_keys = 100
-
     test_rand_workload = Workloads(client, num_keys)
     test_rand_workload.send_puts()
-    test_rand_workload.send_gets()
 
-    # test_seq_workload = Workloads(client, num_keys, random=False)
-    # test_seq_workload.send_puts()
-    # test_seq_workload.send_gets()
-    
+    while(True):
+        print(f"Check gets (WorkLoad with {num_keys} keys)")
+        test_rand_workload.send_gets()
+        print("Sleep for 3 seconds")
+        time.sleep(3)
+

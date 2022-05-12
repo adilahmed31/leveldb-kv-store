@@ -783,8 +783,7 @@ void sigintHandler(int sig_num)
         
     }
     delete db;
-    std::exit(0);
-
+    kill(getpid(), SIGTERM);
 }
 
 void init_p2p_server() {
