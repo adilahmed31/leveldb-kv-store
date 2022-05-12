@@ -691,8 +691,7 @@ void find_master_server() {
         server_config_str = framework->getData()->forPath("/config");
         std::cout<<"currently running server under config "<<server_config_str<<"\n";
     }
-
-    int ret = framework->create()->forPath("/master", getP2PServerAddr(server_details).c_str());
+    int ret = framework->create()->withFlags(ZOO_EPHEMERAL)->forPath("/master", getP2PServerAddr(server_details).c_str());
     if (ret == ZNODEEXISTS) {
         // file exists
         isMaster = false;
@@ -722,7 +721,7 @@ void watch_for_master() {
         auto now = std::chrono::system_clock::now();
         std::chrono::duration<double> diff = now - then;
         std::cout<<"Time elapsed between latest ping from master till now = "<<diff.count()<<std::endl;
-        if(diff.count() > 5) {
+        if(diff.count() > 0.5) {
             std::cout<<"----FINDING NEW MASTER----"<<std::endl;
             find_master_server();
         }
@@ -763,7 +762,7 @@ void init_zk_connection() {
     // strcpy(zk_client.passwd, "lol");
 
     ConservatorFrameworkFactory factory = ConservatorFrameworkFactory();
-    framework = factory.newClient(zk_server_addr.c_str());
+    framework = factory.newClient(zk_server_addr.c_str(),1000);
     framework->start();
 }
 
@@ -790,6 +789,14 @@ void init_server_dir(){
     DIR* dir = opendir(getServerDir(server_details.serverid()).c_str());
     if (ENOENT == errno) {
         mkdir(getServerDir(server_details.serverid()).c_str(), 0777);
+    }
+    closedir(dir);
+}
+
+void init_cache_dir(){
+    DIR* dir = opendir(getCacheDir(server_details.serverid()).c_str());
+    if (ENOENT == errno) {
+        mkdir(getCacheDir(server_details.serverid()).c_str(), 0777);
     }
     closedir(dir);
 }
@@ -900,7 +907,7 @@ int main(int argc, char** argv) {
     }
 
     //Ctrl + C handler
-    signal(SIGINT, sigintHandler);
+   // signal(SIGINT, sigintHandler);
     sem_init(&mutex_allot_server_id, 0, 1);
     sem_init(&mutex_write_batch, 0, 1);
     init_zk_connection();
@@ -918,7 +925,7 @@ int main(int argc, char** argv) {
         // Create server path if it doesn't exist, should be done before calling split/merge db
         // and after getting server id from master.
         init_server_dir();
-
+        
         //start p2p server
         init_p2p_server();
 
@@ -941,6 +948,7 @@ int main(int argc, char** argv) {
 
         // Create server path if it doesn't exist
         init_server_dir();
+
         insert_server_entry(server_details);
     }
 
@@ -958,6 +966,7 @@ int main(int argc, char** argv) {
     std::cout << getServerDir(server_details.serverid()) <<std::endl;
     leveldb::Status status = leveldb::DB::Open(options, getServerDir(server_details.serverid()).c_str(), &db);
     if(do_cache){
+        init_cache_dir(); //Create cache directory if it doesn't exist
         leveldb::Status s_cache = leveldb::DB::Open(options, getCacheDir(server_details.serverid()).c_str(), &cache);
         if(!s_cache.ok()){
             do_cache = 0;
