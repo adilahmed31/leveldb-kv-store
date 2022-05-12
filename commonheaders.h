@@ -70,13 +70,7 @@ std::string getWifsServerAddr(wifs::ServerDetails sd){
 //Consistent hashing - modify/replace hash function if required
 unsigned int somehashfunction(std::string s) {
     std::size_t x = std::hash<std::string>{}(s);
-    x = x+8349;
-    x = ((x >> 16) ^ x) * 0x45d9f3b;
-    x = ((x >> 16) ^ x) * 0x45d9f3b;
-    x = (x >> 16) ^ x;
-    // printf("%d: x before\n", x);
     x = x % RINGLENGTH;
-    // printf("%d: x after\n", x);
     return x ;
 }
 
