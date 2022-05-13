@@ -71,7 +71,7 @@ class Workloads(object):
 
 
 if __name__ == "__main__":
-    num_keys = 100
+    num_keys = 10000
     client = Client("c220g1-030604.wisc.cloudlab.us:2181")
     test_rand_workload = Workloads(client, num_keys, 10)
     while True:
