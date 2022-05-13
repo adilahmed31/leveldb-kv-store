@@ -24,6 +24,7 @@ Run the server using `sudo`. Provide the path to the zookeeper node and the path
 
 E.g:
 `sudo ./server c220g1-030604.wisc.cloudlab.us:2181 /ubunut/mnt/efs`
+
 `sudo ./server`
 
 The configuration consists of three comma-seperated values: mode,buffer\_size, prefix\_length. 
